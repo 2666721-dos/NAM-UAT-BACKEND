@@ -2232,7 +2232,7 @@ def convert_format(filtered_items):
                             "original_text":correction["original_text"],
                         })
 
-    return {'data': checkResults, 'code': 200}
+                return {'data': checkResults, 'code': 200}
 
 # public_Fund and check-results
 @app.route('/api/check_results', methods=['POST'])
