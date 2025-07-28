@@ -5597,7 +5597,7 @@ def ruru_ask_gpt():
                 value = input
             corrections.append({
                         "page": pageNumber,
-                        "original_text": value, #clean_percent_prefix(input)[-4:]
+                        "original_text": clean_percent_prefix(value)[-4:],
                         "check_point": input,
                         "comment": f"{input} → ", # +0.2% → 0.85% f"{reason} → {corrected}"
                         "reason_type": "整合性",
