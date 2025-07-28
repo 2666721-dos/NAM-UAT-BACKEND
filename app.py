@@ -5536,7 +5536,6 @@ def ruru_ask_gpt():
 
             1. Focus only on **semantic correctness**, not wording or phrasing differences.
             2. Look for **financial discrepancies** such as:
-                - Different return rates (e.g. 騰落率)
                 - Incorrect benchmark comparisons (e.g. "ベンチマークを上回った" vs actual data)
                 - Mismatched fund names, months, or ranking claims
             3. When a phrase in `{input}` does **not match** the factual meaning or numerical value in `{result}`, highlight it using the format below.
@@ -5549,8 +5548,6 @@ def ruru_ask_gpt():
             <span style="background-color:#ace4e6;color:red;">[Wrong phrase]</span>
             (<span>提示: [Field or Reason] <s style="color:red">[Wrong value]</s> → [Correct value]</span>)
 
-            Example:
-            <span style="background-color:#ace4e6;color:red;">ベンチマークを上回った</span> (提示: 騰落率 <s style="color:red">上回った</s> → 下回った)
 
             Rules:
             ✅ Do not highlight phrases that are semantically consistent, even if text is partially different.
