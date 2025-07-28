@@ -5396,7 +5396,7 @@ def integrate_enhance():
                     reason = once.get("reason", "")
                     corrections.append({
                         "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
-                        "original_text": get_src(error_data, _content).replace("。○",""),
+                        "original_text": get_src(error_data, _content).replace("。○","").replace("。◯",""),
                         "check_point": content,
                         "comment": f"{error_data} → {reason}", #
                         "reason_type":reason, # for debug 62
@@ -5406,7 +5406,7 @@ def integrate_enhance():
             else:
                 corrections.append({
                     "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
-                    "original_text": get_src(content, _content).replace("。○",""),
+                    "original_text": get_src(content, _content).replace("。○","").replace("。◯",""),
                     "check_point": content,
                     "comment": f"{content} → ",
                     "reason_type": "整合性",  # for debug 62
