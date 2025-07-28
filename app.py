@@ -5526,39 +5526,47 @@ def ruru_ask_gpt():
                 return jsonify({"success": False, "error": "No input provided"}), 400
 
             prompt_result = f"""
-                            You are a professional Japanese financial report proofreader.  
-                            Your task is to **semantically** validate whether the factual content in the `{input}` is consistent with the numerical and financial data provided in `{result}`.  
-                            Only focus on **meaning-level discrepancies** — not textual similarity.
+            You are a professional proofreader specializing in Japanese financial reports.
+            Your task is to perform **semantic validation** of the `{input}` text by comparing it against the numerical and financial data in `{result}`.
+            Check whether all financial values, claims, and performance descriptions in `{input}` are **factually and meaningfully consistent** with the data provided in `{result}`.
 
-                            ---
+            ---
 
-                            ### ✅ Validation and Highlighting Rules:
+            ### ✅ Instructions:
 
-                            1. Compare the values and facts in `{result}` with the claims made in `{input}`.
-                            2. If a sentence or phrase in `{input}` contains a value (e.g., "騰落率", "ベンチマークに対して") that is **semantically consistent** with the value in `{result}`, do **not highlight it**.
-                            3. If the value mentioned in `{input}` **differs from** the corresponding value in `{result}` (in meaning or number), highlight that specific phrase.
-                            4. Use the following format for incorrect parts:
-                            ```html
-                            <span style="background-color:#ace4e6;color:red;">[Wrong phrase]</span>  
-                            (<span>提示: [Field or Reason] <s style="color:red">[Wrong value]</s> → [Correct value]</span>)
+            1. Focus only on **semantic correctness**, not wording or phrasing differences.
+            2. Look for **financial discrepancies** such as:
+                - Different return rates (e.g. 騰落率)
+                - Incorrect benchmark comparisons (e.g. "ベンチマークを上回った" vs actual data)
+                - Mismatched fund names, months, or ranking claims
+            3. When a phrase in `{input}` does **not match** the factual meaning or numerical value in `{result}`, highlight it using the format below.
 
-                            5. If before includes the same meaning or exact phrase as after, even partially, treat it as correct and do not output anything.
-                            6. If all values are semantically correct, return nothing (empty).
-                            7. Use {OrgType} only as context for understanding — but your judgment should be based solely on {input} vs {result}.
+            ---
 
-                            Input:
-                                Input Text:
-                                {input}
+            ### ✅ Output format for incorrect parts:
 
-                                Original Type:
-                                {OrgType}
+            ```html
+            <span style="background-color:#ace4e6;color:red;">[Wrong phrase]</span>
+            (<span>提示: [Field or Reason] <s style="color:red">[Wrong value]</s> → [Correct value]</span>)
 
-                                Result:
-                                {result}
+            Example:
+            <span style="background-color:#ace4e6;color:red;">ベンチマークを上回った</span> (提示: 騰落率 <s style="color:red">上回った</s> → 下回った)
 
-                            Return only HTML output. Do not explain or add comments.
+            Rules:
+            ✅ Do not highlight phrases that are semantically consistent, even if text is partially different.
+            ✅ If the same value or claim is correctly mentioned elsewhere in {input}, do not flag it again.
+            ✅ If everything is correct, return nothing (empty output).
+            ✅ Use {OrgType} only for contextual understanding, not for decision-making.
 
-            
+            Input:
+                Input Text:
+                {input}
+
+                Original Type:
+                {OrgType}
+
+                Result Data:
+                {result}
             """  
             # ChatCompletion Call
             response = openai.ChatCompletion.create(
