@@ -5054,7 +5054,12 @@ async def get_original(input_data, org_text):
         "出力は以下のJSON形式でお願いします:",
         "- [{'target': '[抽出されたテキスト:]'}]",
         "- 類似したものがない場合は、空の文字列を返してください。",
-        "- 類似する内容が存在する場合は、原文との類似度が50％を超えるすべてのテキストを抽出してください。",
+        "抽出ルール：",
+        "- 原文と「語順・文構造・文法パターン」が高く一致している文は、たとえ語句（名詞や主語など）が一部違っていても、**必ず抽出してください**。",
+        "- 類似度が50%以上の文をすべて抽出してください。",
+        "- **原文と構造が似ている文も見落とさずに抽出してください。**",
+        "- **抽出する文が原文の言い換え・文型パターンの共通性がある場合、キーワードの違いがあっても対象に含めてください。**",
+        "- 最も類似した一文だけを返さず、条件を満たすすべての文を必ず抽出してください。",
 
         f"原文:{org_text}\n文章:{input_data}"
     ]
@@ -5062,6 +5067,7 @@ async def get_original(input_data, org_text):
 
     question = [
         {"role": "system", "content": "あなたはテキスト抽出アシスタントです"},
+        {"role": "user", "content": input_data},
         {"role": "user", "content": input_data}
     ]
     response = await openai.ChatCompletion.acreate(
@@ -5071,7 +5077,7 @@ async def get_original(input_data, org_text):
         temperature=TEMPERATURE,
         seed=SEED  # 재현 가능한 결과를 위해 seed 설정
     )
-    answer = response['choices'][0]['message']['content'].strip().strip().replace("`", "").replace("json", "", 1)
+    answer = response['choices'][0]['message']['content'].strip().replace("`", "").replace("json", "", 1)
 
     src_score = 0.5
     src_content = ""
@@ -5306,6 +5312,7 @@ def integrate_enhance():
             if not content:
                 return jsonify({
                     "success": True,
+                    "answer": __answer,
                     "corrections": []  # 틀린 부분과 코멘트
                 })
 
@@ -5625,6 +5632,7 @@ def ruru_ask_gpt():
             "success": True,
             "corrections": corrections,  # 틀린 부분과 코멘트
             "input": input,  # 틀린 부분과 코멘트
+            "answer": __answer,
         })
         
     except Exception as e:
