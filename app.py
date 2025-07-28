@@ -2207,7 +2207,8 @@ def convert_format(filtered_items):
                     checkResults[page] = [{"title": filtered_items["fileName"], "items": []}]
 
                 # 중복 체크
-                if correction["intgr"]:
+                existing_item = next((item for item in checkResults[page][0]["items"] if item["name"] == name and item["changes"] == [change] and correction["intgr"]== True), None)
+                if not existing_item:
                     checkResults[page][0]["items"].append({
                         "name": name,
                         "color": colorSet, #"rgba(255, 255, 0, 0.5)", # green background rgba(0, 255, 0, 0.5)
@@ -2217,22 +2218,9 @@ def convert_format(filtered_items):
                         "reason_type":correction["reason_type"],
                         "check_point":correction["check_point"],
                         "original_text":correction["original_text"],
-                    })
-                else:
-                    existing_item = next((item for item in checkResults[page][0]["items"] if item["name"] == name and item["changes"] == [change]), None)
-                    if not existing_item:
-                        checkResults[page][0]["items"].append({
-                            "name": name,
-                            "color": colorSet, #"rgba(255, 255, 0, 0.5)", # green background rgba(0, 255, 0, 0.5)
-                            "page": page,
-                            "position": position,
-                            "changes": [change],
-                            "reason_type":correction["reason_type"],
-                            "check_point":correction["check_point"],
-                            "original_text":correction["original_text"],
                         })
 
-                return {'data': checkResults, 'code': 200}
+    return {'data': checkResults, 'code': 200}
 
 # public_Fund and check-results
 @app.route('/api/check_results', methods=['POST'])
@@ -5614,7 +5602,7 @@ def ruru_ask_gpt():
                 value = input
             corrections.append({
                         "page": pageNumber,
-                        "original_text": clean_percent_prefix(value)[:18],  # 倒数4个字符
+                        "original_text": clean_percent_prefix(value)[:15],  # 倒数4个字符
                         "check_point": input,
                         "comment": f"{input} → ", # +0.2% → 0.85% f"{reason} → {corrected}"
                         "reason_type": "整合性",
