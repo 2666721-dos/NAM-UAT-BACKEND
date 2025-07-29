@@ -2850,7 +2850,7 @@ def half_and_full_process(text, mapping):
     return ''.join(mapping.get(c, c) for c in text)
 
 replace_rules = {
-    'AAA': 'AAA（全米自動車協会）',
+    # 'AAA': 'AAA（全米自動車協会）', # 729 fix bug
     'ABS': 'ABS（資産担保証券、各種資産担保証券）',
     'ADB': 'ADB（アジア開発銀行）',
     'ADR': 'ADR（米国預託証券）',
@@ -5470,6 +5470,21 @@ def integrate_enhance():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 200
 
+def extract_or_return(sentence):
+    pattern = (
+        r"(?P<return1>騰落率[-−]?\d+\.?\d*％?)?.*?"
+        r"(?P<return2>参考指数の騰落率[-−]?\d+\.?\d*％?)?.*?"
+        r"(?P<return3>\d+\.?\d*ポイント)?.*?"
+        r"(?P<return4>下回[りるられた]*)?"
+    )
+
+    match = re.search(pattern, sentence)
+
+    # 추출 결과 중 실제 값이 있는 항목만 모음
+    extracted = [v for v in match.groupdict().values() if v]
+
+    # 값이 하나라도 있으면 추출된 것들 반환, 없으면 원문 전체 반환
+    return extracted if extracted else [sentence]
 
 @app.route('/api/ruru_ask_gpt', methods=['POST'])
 def ruru_ask_gpt():
@@ -5546,26 +5561,36 @@ def ruru_ask_gpt():
         else:
             if not input:
                 return jsonify({"success": False, "error": "No input provided"}), 400
+            
+            result_input = extract_or_return(input)
 
             prompt_result = f"""
             You are a professional proofreader specializing in Japanese financial reports.
-            Your task is to perform **semantic validation** of the `{input}` text by comparing it against the numerical and financial data in `{result}`.
-            Check whether all financial values, claims, and performance descriptions in `{input}` are **factually and meaningfully consistent** with the data provided in `{result}`.
+            Your task is to perform a **semantic fact-check** of the following financial summary text.
+
+            ---
+
+            ### 🎯 Your Goal:
+            Compare the input financial text (`{result_input}`) with the structured financial result data (`{result}`), and identify any **factually or numerically incorrect phrases**.
 
             ---
 
             ### ✅ Instructions:
 
-            1. Focus only on **semantic correctness**, not wording or phrasing differences.
-            2. Look for **financial discrepancies** such as:
-                - Incorrect benchmark comparisons (e.g. "ベンチマークを上回った" vs actual data)
-                - If a sentence or phrase in `{input}` contains a value (e.g., "騰落率", "月間の基準価額の騰落率", "ベンチマーク","ポイント上回り") that is **semantically consistent** with the value in `{result}`**.
-                - Mismatched fund names, months, or ranking claims
-            3. When a phrase in `{input}` does **not match** the factual meaning or numerical value in `{result}`, highlight it using the format below.
-
+            1. Ensure all financial expressions in `{result_input}` match the factual meaning of `{result}`.
+            2. Focus only on **meaning**, not wording or phrasing.  
+            3. Specific discrepancies to catch:
+                - Incorrect comparisons to benchmarks (e.g., saying "上回った" when it should be "下回った").
+                - Misreported figures for:
+                    - 騰落率 (performance %)
+                    - 参考指数の騰落率 (benchmark performance)
+                    - ポイント差 (point difference)
+                    - その他の定量的評価 (any other quantitative claim)
+                - Month, fund name, or time-frame mismatches.
             ---
 
-            ### ✅ Output format for incorrect parts:
+            ### ✅ Output Format for Errors:
+            Use this format **only when there is a mismatch**:
 
             ```html
             <span style="background-color:#ace4e6;color:red;">[Wrong phrase]</span>
@@ -5574,7 +5599,7 @@ def ruru_ask_gpt():
 
             Rules:
             ✅ Do not highlight phrases that are semantically consistent, even if text is partially different.
-            ✅ If the same value or claim is correctly mentioned elsewhere in {input}, do not flag it again.
+            ✅ If the same value or claim is correctly mentioned elsewhere in {result_input}, do not flag it again.
             ✅ If everything is correct, return nothing (empty output).
             ✅ Use {OrgType} only for contextual understanding, not for decision-making.
 
