@@ -5478,10 +5478,10 @@ def integrate_enhance():
 
 def extract_or_return(sentence):
     pattern = (
-        r"(?P<return1>騰落率[-−]?\d+\.?\d*％?)?.*?"
-        r"(?P<return2>参考指数の騰落率[-−]?\d+\.?\d*％?)?.*?"
-        r"(?P<return3>\d+\.?\d*ポイント)?.*?"
-        r"(?P<return4>下回[りるられた]*)?"
+    r"(?P<fund_return>(?:ファンド|基準価額(?:（分配金再投資）)?|基準価額の変動率|基準価額騰落率|騰落率)[の]?(?:変動率|騰落率)?[-−]?\d+\.?\d*％?)?.*?"
+    r"(?P<benchmark_return>(?:BM|ベンチマーク|参考指数)[の]?(?:騰落率|変動率)?[-−]?\d+\.?\d*％?)?.*?"
+    r"(?P<diff_points>\d+\.?\d*ポイント)?.*?"
+    r"(?P<direction>(上回[りるられた]*|下回[りるられた]*))?"
     )
 
     match = re.search(pattern, sentence)
