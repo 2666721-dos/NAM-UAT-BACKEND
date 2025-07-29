@@ -2208,15 +2208,27 @@ def convert_format(filtered_items):
 
                 # 중복 체크
                 if correction["intgr"]:
-                    checkResults[page][0]["items"].append({
-                        "name": name,
-                        "color": colorSet, #"rgba(255, 255, 0, 0.5)", # green background rgba(0, 255, 0, 0.5)
-                        "page": page,
-                        "position": position,
-                        "changes": [change],
-                        "reason_type":correction["reason_type"],
-                        "check_point":correction["check_point"],
-                        "original_text":correction["original_text"],
+                    # 동일한 수정(change)이 이미 있는지 확인
+                    existing_item = next((
+                        item for item in checkResults[page][0]["items"]
+                        if item["name"] == name and item["changes"] == [change]
+                    ), None)
+
+                    if existing_item:
+                        if "positions" not in existing_item:
+                            existing_item["positions"] = [existing_item["position"]]  # 기존 단일 position 보존
+                            del existing_item["position"]
+                        existing_item["positions"].append(position)
+                    else:
+                        checkResults[page][0]["items"].append({
+                            "name": name,
+                            "color": colorSet,
+                            "page": page,
+                            "positions": [position],  # ✅ save to list
+                            "changes": [change],
+                            "reason_type": correction["reason_type"],
+                            "check_point": correction["check_point"],
+                            "original_text": correction["original_text"],
                         })
                 else:
                     existing_item = next((item for item in checkResults[page][0]["items"] if item["name"] == name and item["changes"] == [change]), None)
@@ -5556,6 +5568,7 @@ def ruru_ask_gpt():
             1. Focus only on **semantic correctness**, not wording or phrasing differences.
             2. Look for **financial discrepancies** such as:
                 - Incorrect benchmark comparisons (e.g. "ベンチマークを上回った" vs actual data)
+                - If a sentence or phrase in `{input}` contains a value (e.g., "騰落率", "月間の基準価額の騰落率", "ベンチマーク","ポイント上回り") that is **semantically consistent** with the value in `{result}`**.
                 - Mismatched fund names, months, or ranking claims
             3. When a phrase in `{input}` does **not match** the factual meaning or numerical value in `{result}`, highlight it using the format below.
 
