@@ -2189,60 +2189,51 @@ def convert_format(filtered_items):
 
         # 위치 정보가 있는 경우 변환
         if correction["locations"]:
-            for idx, loc in enumerate(correction["locations"]):  # 모든 위치 정보를 처리
-                pdf_height = loc.get("pdf_height", 792)  # PDF 높이 (기본값: A4 크기, 792pt)
+            # 위치 정보가 있는 경우 변환
+            # for idx, loc in enumerate(correction["locations"]):  # 모든 위치 정보를 처리
+            loc = correction["locations"][0]
+            pdf_height = loc.get("pdf_height", 792)  # PDF 높이 (기본값: A4 크기, 792pt)
 
-                # 첫 번째 위치만 x 좌표를 조정
-                #debug
-                # x = loc["x0"] - 22 if idx == 0 else loc["x0"]
-                position = {
-                    "x": loc["x0"],  # x 좌표는 그대로 사용
-                    "y": pdf_height - loc["y1"] + 50,  # y 좌표를 PDF 높이를 기준으로 변환
-                    "width": loc["x1"] - loc["x0"],  # 너비 계산
-                    "height": loc["y1"] - loc["y0"],  # 높이 계산
-                }
+            # 첫 번째 위치만 x 좌표를 조정
+            #debug
+            # x = loc["x0"] - 22 if idx == 0 else loc["x0"]
+            position = {
+                "x": loc["x0"],  # x 좌표는 그대로 사용
+                "y": pdf_height - loc["y1"] + 50,  # y 좌표를 PDF 높이를 기준으로 변환
+                "width": loc["x1"] - loc["x0"],  # 너비 계산
+                "height": loc["y1"] - loc["y0"],  # 높이 계산
+            }
 
-                # checkResults에 페이지별 그룹화
-                if page not in checkResults:
-                    checkResults[page] = [{"title": filtered_items["fileName"], "items": []}]
+            # checkResults에 페이지별 그룹화
+            if page not in checkResults:
+                checkResults[page] = [{"title": filtered_items["fileName"], "items": []}]
 
-                # 중복 체크
-                if correction["intgr"]:
-                    # 동일한 수정(change)이 이미 있는지 확인
-                    existing_item = next((
-                        item for item in checkResults[page][0]["items"]
-                        if item["name"] == name and item["changes"] == [change]
-                    ), None)
-
-                    if existing_item:
-                        if "positions" not in existing_item:
-                            existing_item["positions"] = [existing_item["position"]]  # 기존 단일 position 보존
-                            del existing_item["position"]
-                        existing_item["positions"].append(position)
-                    else:
-                        checkResults[page][0]["items"].append({
-                            "name": name,
-                            "color": colorSet,
-                            "page": page,
-                            "positions": [position],  # ✅ save to list
-                            "changes": [change],
-                            "reason_type": correction["reason_type"],
-                            "check_point": correction["check_point"],
-                            "original_text": correction["original_text"],
+            # 중복 체크
+            if correction["intgr"]:
+                checkResults[page][0]["items"].append({
+                    "name": name,
+                    "color": colorSet, #"rgba(255, 255, 0, 0.5)", # green background rgba(0, 255, 0, 0.5)
+                    "page": page,
+                    "position": position,
+                    "changes": [change],
+                    "reason_type":correction["reason_type"],
+                    "check_point":correction["check_point"],
+                    "original_text":correction["original_text"],
+                    })
+            else:
+                existing_item = next((item for item in checkResults[page][0]["items"] if item["name"] == name and item["changes"] == [change]), None)
+                if not existing_item:
+                    checkResults[page][0]["items"].append({
+                        "name": name,
+                        "color": colorSet, #"rgba(255, 255, 0, 0.5)", # green background rgba(0, 255, 0, 0.5)
+                        "page": page,
+                        "position": position,
+                        "changes": [change],
+                        "reason_type":correction["reason_type"],
+                        "check_point":correction["check_point"],
+                        "original_text":correction["original_text"],
                         })
-                else:
-                    existing_item = next((item for item in checkResults[page][0]["items"] if item["name"] == name and item["changes"] == [change]), None)
-                    if not existing_item:
-                        checkResults[page][0]["items"].append({
-                            "name": name,
-                            "color": colorSet, #"rgba(255, 255, 0, 0.5)", # green background rgba(0, 255, 0, 0.5)
-                            "page": page,
-                            "position": position,
-                            "changes": [change],
-                            "reason_type":correction["reason_type"],
-                            "check_point":correction["check_point"],
-                            "original_text":correction["original_text"],
-                            })
+
 
     return {'data': checkResults, 'code': 200}
 
