@@ -2207,8 +2207,7 @@ def convert_format(filtered_items):
                     checkResults[page] = [{"title": filtered_items["fileName"], "items": []}]
 
                 # 중복 체크
-                existing_item = next((item for item in checkResults[page][0]["items"] if item["name"] == name and item["changes"] == [change] and correction["intgr"]== True), None)
-                if not existing_item:
+                if correction["intgr"]:
                     checkResults[page][0]["items"].append({
                         "name": name,
                         "color": colorSet, #"rgba(255, 255, 0, 0.5)", # green background rgba(0, 255, 0, 0.5)
@@ -2219,6 +2218,19 @@ def convert_format(filtered_items):
                         "check_point":correction["check_point"],
                         "original_text":correction["original_text"],
                         })
+                else:
+                    existing_item = next((item for item in checkResults[page][0]["items"] if item["name"] == name and item["changes"] == [change]), None)
+                    if not existing_item:
+                        checkResults[page][0]["items"].append({
+                            "name": name,
+                            "color": colorSet, #"rgba(255, 255, 0, 0.5)", # green background rgba(0, 255, 0, 0.5)
+                            "page": page,
+                            "position": position,
+                            "changes": [change],
+                            "reason_type":correction["reason_type"],
+                            "check_point":correction["check_point"],
+                            "original_text":correction["original_text"],
+                            })
 
     return {'data': checkResults, 'code': 200}
 
