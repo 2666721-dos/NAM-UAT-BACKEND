@@ -5662,7 +5662,7 @@ def ruru_ask_gpt():
 
             Input:
                 Input Text:
-                {input}
+                {result_input}
 
                 Original Type:
                 {OrgType}
@@ -5730,7 +5730,7 @@ def ruru_ask_gpt():
         return jsonify({
             "success": True,
             "corrections": corrections,  # 틀린 부분과 코멘트
-            "input": input,  # 틀린 부분과 코멘트
+            "input": result_input,  # 틀린 부분과 코멘트
             "answer": __answer,
         })
         
