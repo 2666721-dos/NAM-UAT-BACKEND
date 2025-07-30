@@ -3838,7 +3838,8 @@ def extract_parts_with_direction(text: str):
             continue
 
         # %, ％, ポイント 기준 추출
-        pattern = r'[^％%ポイント上下、。\n]*[-−]?\d+(?:\.\d+)?(?:％|%|ポイント)'
+        # pattern = r'[^％%ポイント上下、。\n]*[+-−]?\d+(?:\.\d+)?(?:％|%|ポイント)'
+        pattern = r'[^％%、。\n]*[+-−]{0,2}\d+(?:\.\d+)?(?:％|%|ポイント)'
         segments.extend(re.findall(pattern, part))
 
         # 上下方向
