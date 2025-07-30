@@ -5695,7 +5695,7 @@ def ruru_ask_gpt():
                 "- 類似したものが存在する場合は、最も類似度の高いものを抽出してください",
 
                 "あなたは日本の金融レポートを専門とするプロの校正者です。",
-                "以下の要約文（Input Text）を、構造化された結果データ（Result Data）と比較し、数値や意味に関して正しいかをチェックしてください。",
+                "以下の要約文(Input)を、結果(Result)と比較し、数値や意味に関して正しいかをチェックしてください。",
                 "特に次のような誤りがないかを確認してください:",
                 "- 騰落率（%）の不一致",
                 "- 参考指数（ベンチマーク）の騰落率の不一致",
@@ -5703,9 +5703,9 @@ def ruru_ask_gpt():
                 "- 上回った／下回ったの方向性の誤り",
                 "- 月や期間の不一致",
 
-                f"原文（Input Text）: {input}",
-                f"構造化データ（Result Data）: {result}",
-                f"原文種別（Original Type）: {OrgType}"
+                f"原文(Input): {input}",
+                f"構結果(Result): {result}",
+                f"原文種別(original): {OrgType}"
             ]
 
             input_data = "\n".join(dt)
@@ -5732,21 +5732,26 @@ def ruru_ask_gpt():
                         "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
                         "original_text": clean_percent_prefix(error_data),
                         "check_point": input,
-                        "comment": f"{error_data} → {reason}", #
+                        "comment": f"{error_data} → {reason}", 
                         "reason_type":reason, # for debug 62
                         "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
                         "intgr": True, # for debug 62
                     })
             else:
-                corrections.append({
-                    "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
-                    "original_text": clean_percent_prefix(input),
-                    "check_point": input,
-                    "comment": f"{input} → ",
-                    "reason_type": "整合性",  # for debug 62
-                    "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
-                    "intgr": True,  # for debug 66
-                })
+                a, b, c, d = extract_parts_with_direction(input)
+                # corrections 리스트 초기화
+                corrections = []
+                for part in [a, b, c, d]:
+                    if part:  # 빈값이 아닌 경우만 추가
+                        corrections.append({
+                            "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
+                            "original_text": part.strip(),
+                            "check_point": input,
+                            "comment": f"{part.strip()} → ",
+                            "reason_type": "整合性",  # for debug 62
+                            "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
+                            "intgr": True,  # for debug 66
+                        })
                 
             if pdf_base64:
                 try:
