@@ -5510,6 +5510,7 @@ def integrate_enhance():
             return jsonify({
                 "success": True,
                 "answer": __answer,
+                "input_data": input_data,
                 "corrections": corrections  # 틀린 부분과 코멘트
             })
         else:
