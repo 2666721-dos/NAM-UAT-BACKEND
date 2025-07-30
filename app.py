@@ -5380,7 +5380,12 @@ def integrate_enhance():
         if org_text == "銘柄名1～10":
             content = _content
         elif org_text == "【銘柄名】L’Occitane en Provence（欧州）":
-            content = re.search("【銘柄名】.{,100}", _content)
+            content_re = re.search("【銘柄名】.{,100}", _content)
+            if content_re:
+                content = content_re.group()
+            else:
+                content = ""
+
 
         else:
             loop = asyncio.new_event_loop()
