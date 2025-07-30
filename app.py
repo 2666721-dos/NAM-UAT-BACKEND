@@ -5687,30 +5687,30 @@ def ruru_ask_gpt():
 
             # add the write logic
             # 틀린 부분 찾기
-            corrections = extract_corrections(re_answer,input,pageNumber)
+            # corrections = extract_corrections(re_answer,input,pageNumber)
 
-            if pdf_base64:
-                try:
-                    pdf_bytes = base64.b64decode(pdf_base64)
-                    # 위치 정보만 찾아 corrections에 저장
-                    find_locations_in_pdf(pdf_bytes, corrections)
+            # if pdf_base64:
+            #     try:
+            #         pdf_bytes = base64.b64decode(pdf_base64)
+            #         # 위치 정보만 찾아 corrections에 저장
+            #         find_locations_in_pdf(pdf_bytes, corrections)
                     
-                except ValueError as e:
-                    return jsonify({"success": False, "error": str(e)}), 400
-                except Exception as e:
-                    return jsonify({"success": False, "error": str(e)}), 500
+            #     except ValueError as e:
+            #         return jsonify({"success": False, "error": str(e)}), 400
+            #     except Exception as e:
+            #         return jsonify({"success": False, "error": str(e)}), 500
         
-        if not corrections:
-            match = re.search(r"超過収益[^-+0-9]*([+-]?\d+(?:\.\d+)?)", input)
+        # if not corrections:
+            match = re.search(r"超過収益[^-+0-9]*([+-]?\d+(?:\.\d+)?)", answer)
             if match:
                 value = match.group(1)
             else:
-                value = input
+                value = answer
             corrections.append({
                         "page": pageNumber,
                         "original_text": clean_percent_prefix(value),  # 倒数4个字符 [:15]
-                        "check_point": input,
-                        "comment": f"{input} → ", # +0.2% → 0.85% f"{reason} → {corrected}"
+                        "check_point": answer,
+                        "comment": f"{answer} → ", # +0.2% → 0.85% f"{reason} → {corrected}"
                         "reason_type": "整合性",
                         "locations": [],
                         "intgr": True,
@@ -5732,6 +5732,7 @@ def ruru_ask_gpt():
             "corrections": corrections,  # 틀린 부분과 코멘트
             "input": result_input,  # 틀린 부분과 코멘트
             "answer": __answer,
+            "answerdebug": answer,
         })
         
     except Exception as e:
