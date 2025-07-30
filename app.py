@@ -5641,7 +5641,7 @@ def ruru_ask_gpt():
             #     - Misreported figures for:
             #         - 騰落率 (performance %)
             #         - 参考指数の騰落率 (benchmark performance)
-            #         - ポイント差 (point difference)
+            #         - ポイント (point)
             #         - その他の定量的評価 (any other quantitative claim)
             #     - Month, fund name, or time-frame mismatches.
             # ---
@@ -5699,7 +5699,7 @@ def ruru_ask_gpt():
                 "特に次のような誤りがないかを確認してください:",
                 "- 騰落率（%）の不一致",
                 "- 参考指数（ベンチマーク）の騰落率の不一致",
-                "- ポイント差の不一致",
+                "- ポイント",
                 "- 上回った／下回ったの方向性の誤り",
                 "- 月や期間の不一致",
 
@@ -5730,7 +5730,7 @@ def ruru_ask_gpt():
                     reason = once.get("reason", "")
                     corrections.append({
                         "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
-                        "original_text": get_src(error_data, input).replace("。○","").replace("。◯",""),
+                        "original_text": clean_percent_prefix(input),
                         "check_point": input,
                         "comment": f"{error_data} → {reason}", #
                         "reason_type":reason, # for debug 62
@@ -5740,7 +5740,7 @@ def ruru_ask_gpt():
             else:
                 corrections.append({
                     "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
-                    "original_text": get_src(_input, input).replace("。○","").replace("。◯",""),
+                    "original_text": clean_percent_prefix(input),
                     "check_point": input,
                     "comment": f"{input} → ",
                     "reason_type": "整合性",  # for debug 62
@@ -5790,7 +5790,7 @@ def ruru_ask_gpt():
             "success": True,
             "corrections": corrections,  # 틀린 부분과 코멘트
             "input": input, 
-            "answer": __answer, 
+            "answer": _parsed_data, 
         })
         
     except Exception as e:
