@@ -5147,11 +5147,11 @@ async def get_original(input_data, org_text, file_name="", target_text=""):
             elif file_name.startswith("180332"):
                 if org_text[:5] in similar_content[:10]:
                     if target_text == "セクター別配分":
-                        re_content = re.search("(セクター別.*)個別の寄与度", similar_content)
+                        re_content = re.search("(セクター別.*)個別の寄与度", similar_content, re.DOTALL)
                         if re_content:
                             src_content = re_content.groups(1)
                     elif target_text == "寄与度":
-                        re_content = re.search("個別の寄与度.*", similar_content)
+                        re_content = re.search("個別の寄与度.*", similar_content, re.DOTALL)
                         if re_content:
                             src_content = re_content.group()
                             break
