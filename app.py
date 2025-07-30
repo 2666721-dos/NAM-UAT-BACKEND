@@ -5152,7 +5152,7 @@ async def get_original(input_data, org_text, file_name="", target_text=""):
                         if re_content:
                             src_content = re_content.groups(1)[0]
                             break
-                    elif target_text == ["寄与度", "寄与度＞【上位5銘柄】"]:
+                    elif target_text in ["寄与度", "寄与度＞【上位5銘柄】"]:
                         re_content = re.search("個別の寄与度.*", similar_content, re.DOTALL)
                         if re_content:
                             src_content = re_content.group()
