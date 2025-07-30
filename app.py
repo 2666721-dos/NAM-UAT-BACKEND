@@ -5730,7 +5730,7 @@ def ruru_ask_gpt():
                     reason = once.get("reason", "")
                     corrections.append({
                         "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
-                        "original_text": clean_percent_prefix(input),
+                        "original_text": clean_percent_prefix(error_data),
                         "check_point": input,
                         "comment": f"{error_data} → {reason}", #
                         "reason_type":reason, # for debug 62
