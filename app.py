@@ -5727,6 +5727,7 @@ def ruru_ask_gpt():
                         "intgr": True, # for debug 62
                     })
             else:
+                segments = []
                 segments= extract_parts_with_direction(input)
                 # corrections 리스트 초기화
                 corrections = []
