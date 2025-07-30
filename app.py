@@ -3033,8 +3033,18 @@ replace_rules = {
     'ロングポジション': 'ロングポジション（買い持ち）',
     'EDAツール': 'EDAツール（電子設計自動化ツール）', #623
     'TOPIX':'TOPIX（東証株価指数）', #63207
-    # '利回りは上昇': '利回りは上昇（価格は下落）',
-    # '利回りは低下': '利回りは低下（価格は上昇）',
+    '利回りは上昇': '利回りは上昇（価格は下落）', #730
+    '利回りは低下': '利回りは低下（価格は上昇）', #730
+
+    '利回りの上昇': '利回りの上昇(価格は低下)', #730
+    '利回りの低下': '利回りの低下(価格は上昇)', #730
+
+    '国債利回りは、月間で上昇': '国債利回りは、月間で上昇(価格は低下)', #730
+    '国債利回りは、月間で下落': '国債利回りは、月間で下落(価格は上昇)', #730
+
+    '債券利回りは上昇': '債券利回りは上昇(価格は低下)', #730
+    '債券利回りは下落': '債券利回りは上昇(価格は上昇)', #730
+    
     'シャリア': 'シャリーア',
     'TTM': '仲値',
     '殆ど': 'ほとんど',
@@ -3800,13 +3810,54 @@ def extract_text(input_text, original_text):
     else:
         return None  # 매칭되지 않는 경우 None 반환
 
+# def clean_percent_prefix(value: str):
+#     # split으로 %, ％ 기준으로 나누고 첫 번째 부분 추출
+#     for symbol in ['%', '％']:
+#         if symbol in value:
+#             return value.split(symbol)[0].strip()
+#     return value.strip()  # %가 없으면 그대로 반환
+
 def clean_percent_prefix(value: str):
-    # split으로 %, ％ 기준으로 나누고 첫 번째 부분 추출
-    for symbol in ['%', '％']:
+    if not isinstance(value, str):
+        return None
+    for symbol in ['％', '%', 'ポイント']:
         if symbol in value:
-            return value.split(symbol)[0].strip()
-    return value.strip()  # %가 없으면 그대로 반환
+            value = value.split(symbol)[0].strip()
+            return f"{value}{symbol}"
+    return value.strip()
                 
+def extract_parts_with_direction(text: str):
+    # 1. 、 또는 \n 기준으로 문장 나누기
+    parts = re.split(r'[、\n]', text)
+    
+    # 첫 번째 문장
+    first_part = parts[0].strip() if parts else text.strip()
+    
+    # 초기값
+    second_part = ''
+    third_part = ''
+    direction = ''
+
+    if len(parts) > 1:
+        second_sentence = parts[1].strip()
+
+        # 2. "参考指数の騰落率-1.78％" 추출
+        match_benchmark = re.search(r'(参考指数の騰落率[-−]?\d+\.?\d*％)', second_sentence)
+        if match_benchmark:
+            second_part = match_benchmark.group(1)
+
+        # 3. "0.28ポイント" 추출
+        match_point = re.search(r'(\d+\.?\d*ポイント)', second_sentence)
+        if match_point:
+            third_part = match_point.group(1)[:8]
+
+        # 4. "下回りました" 또는 "上回りました" 추출
+        match_direction = re.search(r'(下回りました|上回りました)', second_sentence)
+        if match_direction:
+            direction = match_direction.group(1)
+
+    return first_part, second_part, third_part, direction
+
 def extract_corrections(corrected_text, input_text,pageNumber):
     corrections = []
     
@@ -5481,7 +5532,7 @@ def extract_or_return(sentence):
     r"(?P<fund_return>(?:ファンド|基準価額(?:（分配金再投資）)?|基準価額の変動率|基準価額騰落率|騰落率)[の]?(?:変動率|騰落率)?[-−]?\d+\.?\d*％?)?.*?"
     r"(?P<benchmark_return>(?:BM|ベンチマーク|参考指数)[の]?(?:騰落率|変動率)?[-−]?\d+\.?\d*％?)?.*?"
     r"(?P<diff_points>\d+\.?\d*ポイント)?.*?"
-    r"(?P<direction>(上回[りるられた]*|下回[りるられた]*))?"
+    r"(?P<direction>(上回[り]*|下回[り]*))?"
     )
 
     match = re.search(pattern, sentence)
@@ -5656,7 +5707,7 @@ def ruru_ask_gpt():
                 value = input
             corrections.append({
                         "page": pageNumber,
-                        "original_text": clean_percent_prefix(value)[:15],  # 倒数4个字符
+                        "original_text": clean_percent_prefix(value),  # 倒数4个字符 [:15]
                         "check_point": input,
                         "comment": f"{input} → ", # +0.2% → 0.85% f"{reason} → {corrected}"
                         "reason_type": "整合性",
