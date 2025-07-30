@@ -5619,76 +5619,135 @@ def ruru_ask_gpt():
             if not input:
                 return jsonify({"success": False, "error": "No input provided"}), 400
             
-            result_input = extract_or_return(input)
+            # result_input = extract_or_return(input)
 
-            prompt_result = f"""
-            You are a professional proofreader specializing in Japanese financial reports.
-            Your task is to perform a **semantic fact-check** of the following financial summary text.
+            # prompt_result = """
+            # You are a professional proofreader specializing in Japanese financial reports.
+            # Your task is to perform a **semantic fact-check** of the following financial summary text.
 
-            ---
+            # ---
 
-            ### 🎯 Your Goal:
-            Compare the input financial text (`{result_input}`) with the structured financial result data (`{result}`), and identify any **factually or numerically incorrect phrases**.
+            # ### 🎯 Your Goal:
+            # Compare the input financial text (`{result_input}`) with the structured financial result data (`{result}`), and identify any **factually or numerically incorrect phrases**.
 
-            ---
+            # ---
 
-            ### ✅ Instructions:
+            # ### ✅ Instructions:
 
-            1. Ensure all financial expressions in `{result_input}` match the factual meaning of `{result}`.
-            2. Focus only on **meaning**, not wording or phrasing.  
-            3. Specific discrepancies to catch:
-                - Incorrect comparisons to benchmarks (e.g., saying "上回った" when it should be "下回った").
-                - Misreported figures for:
-                    - 騰落率 (performance %)
-                    - 参考指数の騰落率 (benchmark performance)
-                    - ポイント差 (point difference)
-                    - その他の定量的評価 (any other quantitative claim)
-                - Month, fund name, or time-frame mismatches.
-            ---
+            # 1. Ensure all financial expressions in `{result_input}` match the factual meaning of `{result}`.
+            # 2. Focus only on **meaning**, not wording or phrasing.  
+            # 3. Specific discrepancies to catch:
+            #     - Incorrect comparisons to benchmarks (e.g., saying "上回った" when it should be "下回った").
+            #     - Misreported figures for:
+            #         - 騰落率 (performance %)
+            #         - 参考指数の騰落率 (benchmark performance)
+            #         - ポイント差 (point difference)
+            #         - その他の定量的評価 (any other quantitative claim)
+            #     - Month, fund name, or time-frame mismatches.
+            # ---
 
-            ### ✅ Output Format for Errors:
-            Use this format **only when there is a mismatch**:
+            # ### ✅ Output Format for Errors:
+            # Use this format **only when there is a mismatch**:
 
-            ```html
-            <span style="background-color:#ace4e6;color:red;">[Wrong phrase]</span>
-            (<span>提示: [Field or Reason] <s style="color:red">[Wrong value]</s> → [Correct value]</span>)
+            
+            # "出力は以下のJSON形式でお願いします:",
+            # "- {'target': '[抽出されたテキスト:]'}",
+            # "- 類似したものがない場合は、空の文字列を返してください",
+            # "- 類似したものが存在する場合は、最も類似度の高いものを抽出してください",
 
+            
+            # Rules:
+            # ✅ Do not highlight phrases that are semantically consistent, even if text is partially different.
+            # ✅ If the same value or claim is correctly mentioned elsewhere in {result_input}, do not flag it again.
+            # ✅ If everything is correct, return nothing (empty output).
+            # ✅ Use {OrgType} only for contextual understanding, not for decision-making.
 
-            Rules:
-            ✅ Do not highlight phrases that are semantically consistent, even if text is partially different.
-            ✅ If the same value or claim is correctly mentioned elsewhere in {result_input}, do not flag it again.
-            ✅ If everything is correct, return nothing (empty output).
-            ✅ Use {OrgType} only for contextual understanding, not for decision-making.
+            # Input:
+            #     Input Text:
+            #     {result_input}
 
-            Input:
-                Input Text:
-                {result_input}
+            #     Original Type:
+            #     {OrgType}
 
-                Original Type:
-                {OrgType}
-
-                Result Data:
-                {result}
-            """  
+            #     Result Data:
+            #     {result}
+            # """  
             # ChatCompletion Call
-            response = openai.ChatCompletion.create(
-                deployment_id=deployment_id,  # Deploy Name
-                messages=[
-                    {"role": "system", "content": "You are a professional Japanese text proofreading assistant."},
-                    {"role": "user", "content": prompt_result},
-                    {"role": "user", "content": prompt_result} # additional ask
-                ],
-                max_tokens=MAX_TOKENS,
-                temperature=TEMPERATURE,
-                seed=SEED  # 재현 가능한 결과를 위해 seed 설정정
-            )
-            answer = response['choices'][0]['message']['content'].strip()
-            re_answer = remove_code_blocks(answer)
+            # response = openai.ChatCompletion.create(
+            #     deployment_id=deployment_id,  # Deploy Name
+            #     messages=[
+            #         {"role": "system", "content": "You are a professional Japanese text proofreading assistant."},
+            #         {"role": "user", "content": prompt_result},
+            #     ],
+            #     max_tokens=MAX_TOKENS,
+            #     temperature=TEMPERATURE,
+            #     seed=SEED  # 재현 가능한 결과를 위해 seed 설정정
+            # # )
+            # answer = response['choices'][0]['message']['content'].strip()
+            # re_answer = remove_code_blocks(answer)
 
             # add the write logic
-            # 틀린 부분 찾기
-            corrections = extract_corrections(re_answer,input,pageNumber)
+            dt = [
+                "文章から原文に類似したテキストを抽出してください",
+                "出力は以下のJSON形式でお願いします:",
+                "- [{'original': '[原文中の誤っている部分:]', 'reason': '[理由:]'}]",
+                "- 類似したものがない場合は、空の文字列を返してください",
+                "- 類似したものが存在する場合は、最も類似度の高いものを抽出してください",
 
+                "あなたは日本の金融レポートを専門とするプロの校正者です。",
+                "以下の要約文（Input Text）を、構造化された結果データ（Result Data）と比較し、数値や意味に関して正しいかをチェックしてください。",
+                "特に次のような誤りがないかを確認してください:",
+                "- 騰落率（%）の不一致",
+                "- 参考指数（ベンチマーク）の騰落率の不一致",
+                "- ポイント差の不一致",
+                "- 上回った／下回ったの方向性の誤り",
+                "- 月や期間の不一致",
+
+                f"原文（Input Text）: {input}",
+                f"構造化データ（Result Data）: {result}",
+                f"原文種別（Original Type）: {OrgType}"
+            ]
+
+            input_data = "\n".join(dt)
+
+            question = [
+                {"role": "system", "content": "あなたはテキスト抽出アシスタントです"},
+                {"role": "user", "content": input_data}
+            ]
+            response = openai.ChatCompletion.create(
+                deployment_id=deployment_id,  # Deploy Name
+                messages=question,
+                max_tokens=MAX_TOKENS,
+                temperature=TEMPERATURE,
+                seed=SEED  # 재현 가능한 결과를 위해 seed 설정
+            )
+            _answer = response['choices'][0]['message']['content'].strip().strip().replace("`", "").replace("json", "", 1)
+            _parsed_data = ast.literal_eval(_answer)
+            corrections = []
+            if _parsed_data:
+                for once in _parsed_data:
+                    error_data = once.get("original", "")
+                    reason = once.get("reason", "")
+                    corrections.append({
+                        "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
+                        "original_text": get_src(error_data, input).replace("。○","").replace("。◯",""),
+                        "check_point": input,
+                        "comment": f"{error_data} → {reason}", #
+                        "reason_type":reason, # for debug 62
+                        "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
+                        "intgr": True, # for debug 62
+                    })
+            else:
+                corrections.append({
+                    "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
+                    "original_text": get_src(_input, input).replace("。○","").replace("。◯",""),
+                    "check_point": input,
+                    "comment": f"{input} → ",
+                    "reason_type": "整合性",  # for debug 62
+                    "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
+                    "intgr": True,  # for debug 66
+                })
+                
             if pdf_base64:
                 try:
                     pdf_bytes = base64.b64decode(pdf_base64)
@@ -5700,7 +5759,7 @@ def ruru_ask_gpt():
                 except Exception as e:
                     return jsonify({"success": False, "error": str(e)}), 500
         
-        # if not corrections:
+        if not corrections:
         #     match = re.search(r"超過収益[^-+0-9]*([+-]?\d+(?:\.\d+)?)", input)
         #     if match:
         #         value = match.group(1)
@@ -5730,9 +5789,8 @@ def ruru_ask_gpt():
         return jsonify({
             "success": True,
             "corrections": corrections,  # 틀린 부분과 코멘트
-            "input": result_input,  # 틀린 부분과 코멘트
-            "answer": __answer,
-            "re_answer": re_answer,
+            "input": result_input, 
+            "answer": __answer, 
         })
         
     except Exception as e:
