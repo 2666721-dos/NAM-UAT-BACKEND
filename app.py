@@ -5675,7 +5675,8 @@ def ruru_ask_gpt():
                 deployment_id=deployment_id,  # Deploy Name
                 messages=[
                     {"role": "system", "content": "You are a professional Japanese text proofreading assistant."},
-                    {"role": "user", "content": prompt_result}
+                    {"role": "user", "content": prompt_result},
+                    {"role": "user", "content": prompt_result} # additional ask
                 ],
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE,
