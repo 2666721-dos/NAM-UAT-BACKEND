@@ -5154,12 +5154,13 @@ async def get_original(input_data, org_text, file_name="", target_text=""):
                         re_content = re.search("個別の寄与度.*", similar_content)
                         if re_content:
                             src_content = re_content.group()
-            else:
-                if similar_content:
-                    score = SequenceMatcher(None, org_text, similar_content).ratio()
-                    if score > src_score:
-                        src_score = score
-                        src_content = similar_content
+                            break
+            if similar_content:
+                score = SequenceMatcher(None, org_text, similar_content).ratio()
+                if score > src_score:
+                    src_score = score
+                    src_content = similar_content
+
 
     return src_content, answer
 
