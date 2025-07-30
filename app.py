@@ -5144,6 +5144,7 @@ async def get_original(input_data, org_text, file_name="", target_text=""):
             if file_name.startswith("180015"):
                 if org_text[:4] in similar_content[:6]:
                     src_content = similar_content
+                    break
             elif file_name.startswith("180332"):
                 if org_text[:5] in similar_content[:10]:
                     if target_text == "セクター別配分":
@@ -5161,9 +5162,8 @@ async def get_original(input_data, org_text, file_name="", target_text=""):
                 if score > src_score:
                     src_score = score
                     src_content = similar_content
-
-
     return src_content, answer
+
 
 LOCAL_LINK = "local_link"
 @app.route('/api/getaths', methods=['GET'])
