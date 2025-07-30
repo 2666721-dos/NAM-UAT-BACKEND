@@ -3828,35 +3828,24 @@ def clean_percent_prefix(value: str):
                 
 def extract_parts_with_direction(text: str):
     # 1. 、 또는 \n 기준으로 문장 나누기
-    parts = re.split(r'[、\n]', text)
+    parts = re.split(r'[\n]', text)
     
     # 첫 번째 문장
     first_part = parts[0].strip() if parts else text.strip()
     
-    # 초기값
-    second_part = ''
-    third_part = ''
-    direction = ''
-
     if len(parts) > 1:
-        second_sentence = parts[1].strip()
 
-        # 2. "参考指数の騰落率-1.78％" 추출
-        match_benchmark = re.search(r'(参考指数の騰落率[-−]?\d+\.?\d*％)', second_sentence)
-        if match_benchmark:
-            second_part = match_benchmark.group(1)
+        segments = []
 
-        # 3. "0.28ポイント" 추출
-        match_point = re.search(r'(\d+\.?\d*ポイント)', second_sentence)
-        if match_point:
-            third_part = match_point.group(1)[:8]
+        # 의미 단위 추출: %, ％, ポイント
+        pattern = r'[^％%ポイント上下、。\n]*[-−]?\d+(?:\.\d+)?(?:％|%|ポイント)'
+        segments.extend(re.findall(pattern, first_part))
 
-        # 4. "下回りました" 또는 "上回りました" 추출
-        match_direction = re.search(r'(下回りました|上回りました)', second_sentence)
-        if match_direction:
-            direction = match_direction.group(1)
+        # 방향 (上回りました, 下回りました)
+        direction_match = re.findall(r'(上回りました|下回りました)', first_part)
+        segments.extend(direction_match)
 
-    return first_part, second_part, third_part, direction
+        return segments
 
 def extract_corrections(corrected_text, input_text,pageNumber):
     corrections = []
@@ -5738,10 +5727,10 @@ def ruru_ask_gpt():
                         "intgr": True, # for debug 62
                     })
             else:
-                a, b, c, d = extract_parts_with_direction(input)
+                segments= extract_parts_with_direction(input)
                 # corrections 리스트 초기화
                 corrections = []
-                for part in [a, b, c, d]:
+                for part in segments:
                     if part:  # 빈값이 아닌 경우만 추가
                         corrections.append({
                             "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
