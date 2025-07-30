@@ -3827,25 +3827,25 @@ def clean_percent_prefix(value: str):
     return value.strip()
                 
 def extract_parts_with_direction(text: str):
-    # 1. 、 또는 \n 기준으로 문장 나누기
-    parts = re.split(r'[\n]', text)
+    # 쉼표・마침표・개행 모두 기준
+    parts = re.split(r'[、。\n]', text)
     
-    # 첫 번째 문장
-    first_part = parts[0].strip() if parts else text.strip()
-    
-    if len(parts) > 1:
+    segments = []
 
-        segments = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
 
-        # 의미 단위 추출: %, ％, ポイント
+        # %, ％, ポイント 기준 추출
         pattern = r'[^％%ポイント上下、。\n]*[-−]?\d+(?:\.\d+)?(?:％|%|ポイント)'
-        segments.extend(re.findall(pattern, first_part))
+        segments.extend(re.findall(pattern, part))
 
-        # 방향 (上回りました, 下回りました)
-        direction_match = re.findall(r'(上回りました|下回りました)', first_part)
-        segments.extend(direction_match)
+        # 上下方向
+        # direction_match = re.findall(r'(上回りました|下回りました)', part)
+        # segments.extend(direction_match)
 
-        return segments
+    return segments
 
 def extract_corrections(corrected_text, input_text,pageNumber):
     corrections = []
