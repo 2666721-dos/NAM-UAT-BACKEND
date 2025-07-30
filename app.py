@@ -5104,7 +5104,7 @@ def insert_rule():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
-async def get_original(input_data, org_text, file_name=""):
+async def get_original(input_data, org_text, file_name="", target_text=""):
     dt = [
         "文章から原文に類似したテキストを抽出してください",
         "出力は以下のJSON形式でお願いします:",
@@ -5144,6 +5144,17 @@ async def get_original(input_data, org_text, file_name=""):
             if file_name.startswith("180015"):
                 if org_text[:4] in similar_content[:6]:
                     src_content = similar_content
+                elif file_name.startswith("180332"):
+                    if org_text[:5] in similar_content[:10]:
+                        if target_text == "セクター別配分":
+                            re_content = re.search("(セクター別.*)個別の寄与度", similar_content)
+                            if re_content:
+                                src_content = re_content.groups(1)
+                        elif target_text == "寄与度":
+                            re_content = re.search("個別の寄与度.*", similar_content)
+                            if re_content:
+                                src_content = re_content.group()
+
             else:
                 if similar_content:
                     score = SequenceMatcher(None, org_text, similar_content).ratio()
@@ -5360,6 +5371,7 @@ def integrate_enhance():
         base_month = data.get("Base_month", "")
         pageNumber = data.get('pageNumber',0)
         file_name = data.get("file_name", "")
+        target_text = data.get("Target_Text", "")
 
         org_text = data.get("Org_Text", "")
         __answer = ""
@@ -5369,7 +5381,7 @@ def integrate_enhance():
         else:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            content, __answer = loop.run_until_complete(get_original(_content, org_text, file_name))
+            content, __answer = loop.run_until_complete(get_original(_content, org_text, file_name, target_text))
 
             if not content:
                 return jsonify({
