@@ -5145,7 +5145,7 @@ async def get_original(input_data, org_text, file_name="", target_text=""):
                 if org_text[:4] in similar_content[:6]:
                     src_content = similar_content
                     break
-            elif re.search("180332|180358|180359|180360", file_name):
+            elif re.search("180332|180358|180359|180360|180344|180345", file_name):
                 if org_text[:5] in similar_content[:10]:
                     if target_text in ["セクター別配分", "セクター別寄与度"]:
                         re_content = re.search("(セクター別.*)個別の寄与度", similar_content, re.DOTALL)
