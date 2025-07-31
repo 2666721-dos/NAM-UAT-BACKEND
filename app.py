@@ -7776,7 +7776,7 @@ def check_tenbrend(filename, fund_type):
             pdf_response = requests.get(pdf_url)
             if pdf_response.status_code != 200:
                 return "PDF下载失败，没有找到pdf"
-            if fcode in ['140193', '140386','140565-6','180295-8']:
+            if fcode in ['140193', '140386','140565-6','180295-8',"180291-2"]:
                 # 将 .pdf 替换为 .xlsx 作为 Excel 文件路径
                 excel_url = pdf_url.replace(".pdf", ".xlsx")
 
@@ -7788,7 +7788,7 @@ def check_tenbrend(filename, fund_type):
                 # 转为 BytesIO 对象传给 extract_excel_table3
                 excel_file = io.BytesIO(response.content)
                 tables = extract_excel_table3(excel_file,fcode)
-            elif fcode in ["140675", "140655-6", "140695-6", "180291-2"]:
+            elif fcode in ["140675", "140655-6", "140695-6"]:
                 tables = extract_pdf_table_special(io.BytesIO(pdf_response.content))
             else:
 
@@ -8315,6 +8315,9 @@ def extract_excel_table3(file_like,fcode):
         elif fcode == "140565-6":
             sheet_name = "銘柄解説入力ｼｰﾄ"
             df = pd.read_excel(file_like, sheet_name=sheet_name, header=1, usecols="A:D", dtype=str)
+        elif fcode == "180291-2":
+            sheet_name = "上位10銘柄コメント"
+            df = pd.read_excel(file_like, sheet_name=sheet_name, header=1, usecols="A:D", dtype=str)
         else:
             sheet_name = "銘柄解説"
             df = pd.read_excel(file_like, sheet_name=sheet_name, header=1, usecols="A:E", dtype=str)
@@ -8752,11 +8755,17 @@ def handle_sheet_plus4(pdf_url, fcode, sheetname, fund_type, container, filename
         return f"❌ handle_sheet_4plus41 error: {str(e)}"
 
 
-def extract_excel_table5(excel_file):
+def extract_excel_table5(excel_file,fcode):
     try:
         # 支持传入 BytesIO 或本地路径
-        sheet_name = "銘柄解説"
-        df = pd.read_excel(excel_file, sheet_name=sheet_name, header=1, usecols="A:G", dtype=str)
+        if fcode == "140312-3":
+            sheet_name = "PIC_24_S"
+            df = pd.read_excel(excel_file, sheet_name=sheet_name, header=1, usecols="A:G", dtype=str)
+        # 支持传入 BytesIO 或本地路径
+        else:
+            sheet_name = "銘柄解説"
+            df = pd.read_excel(excel_file, sheet_name=sheet_name, header=1, usecols="A:G", dtype=str)
+
     except Exception as e:
         print(f"❌ Excel 读取失败: {e}")
         return []
@@ -8772,7 +8781,10 @@ def extract_excel_table5(excel_file):
         stock = clean_text(df.iloc[i, 1])  # 銘柄名
         category = clean_text(df.iloc[i, 2])  # 分野
         tmp_cat = clean_text(df.iloc[i, 4])
-        if category == tmp_cat or tmp_cat == '':
+        if fcode == "140312-3":
+            desc = clean_text(df.iloc[i, 3])  # 組入銘柄解説（G列，第1行）
+            esg = clean_text(df.iloc[i + 1, 3])  # ESG理由（G列，第2行）
+        elif category == tmp_cat or tmp_cat == '':
             desc = clean_text(df.iloc[i, 6])  # 組入銘柄解説（G列，第1行）
             esg = clean_text(df.iloc[i + 1, 6])  # ESG理由（G列，第2行）
         else:
@@ -8787,7 +8799,7 @@ def extract_excel_table5(excel_file):
 
 def handle_sheet_plus5(pdf_url, fcode, sheetname, fund_type, container, filename):
     try:
-        if fcode in ['140787', '180342-3']:
+        if fcode in ['140787', '180342-3','140312-3']:
             # 将 .pdf 替换为 .xlsx 作为 Excel 文件路径
             excel_url = pdf_url.replace(".pdf", ".xlsx")
 
@@ -8798,7 +8810,7 @@ def handle_sheet_plus5(pdf_url, fcode, sheetname, fund_type, container, filename
 
             # 转为 BytesIO 对象传给 extract_excel_table5
             excel_file = io.BytesIO(response.content)
-            tables = extract_excel_table5(excel_file)
+            tables = extract_excel_table5(excel_file,fcode)
         else:
             pdf_response = requests.get(pdf_url)
             if pdf_response.status_code != 200:
