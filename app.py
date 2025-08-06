@@ -4985,6 +4985,17 @@ def integeration_ruru_cosmos():
             logging.info("✅ Data inserted into Cosmos DB successfully.")
             return jsonify({"success": True, "message": "Data inserted successfully."}), 200
 
+        # if items:
+        #     # 기존 항목 ID 유지해서 덮어쓰기
+        #     item["id"] = items[0]["id"]
+        #     container.replace_item(item=items[0], body=item)
+        #     logging.info("✅ Data updated in Cosmos DB successfully.")
+        #     return jsonify({"success": True, "message": "Data updated successfully."}), 200
+        # else:
+        #     container.create_item(body=item)
+        #     logging.info("✅ Data inserted into Cosmos DB successfully.")
+        #     return jsonify({"success": True, "message": "Data inserted successfully."}), 200
+
     except Exception as e:
         logging.error(f"❌ Cosmos DB 저장 오류: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
@@ -5157,6 +5168,11 @@ async def get_original(input_data, org_text, file_name="", target_text=""):
                         if re_content:
                             src_content = re_content.group()
                             break
+            elif re.search("180001|180002|180003|180004|180015|180021|180022|180023", file_name):
+                if org_text[1: 5] in similar_content[: 10]:
+                    src_content = similar_content
+                    break
+
             if similar_content:
                 score = SequenceMatcher(None, org_text, similar_content).ratio()
                 if score > src_score:
@@ -6270,19 +6286,19 @@ def get_prompt(corrected):
         "取り組みし"は自然な連用形表現のため、修正不要'
         {example_70}
         """,
-    #     f"""
-    #    **Punctuation (句読点) Usage Check**
-    #     -Check the sentence-ending punctuation and comma usage only within complete sentences.
-    #     **Proofreading Requirements:**
-    #     -Only detect missing「。」at the end of grammatically complete sentences.
-    #     -If the sentence already ends with「。」, do not suggest any correction.
-    #     -Do not flag missing or extra「。」in sentence fragments, headings, bullet points, or intentionally incomplete expressions.
-    #     -Check for excessive or missing「、」only within grammatically complete sentences.
-    #     -Do not flag cases where comma omission is stylistically natural and grammatically acceptable in Japanese (e.g.,「好感され月間では下落し」).
+        f"""
+       **Punctuation (句読点) Usage Check**
+        -Check the sentence-ending punctuation and comma usage only within complete sentences.
+        **Proofreading Requirements:**
+        -Only detect missing「。」at the end of grammatically complete sentences.
+        -If the sentence already ends with「。」, do not suggest any correction.
+        -Do not flag missing or extra「。」in sentence fragments, headings, bullet points, or intentionally incomplete expressions.
+        -Check for excessive or missing「、」only within grammatically complete sentences.
+        -Do not flag cases where comma omission is stylistically natural and grammatically acceptable in Japanese (e.g.,「好感され月間では下落し」).
 
-    #     **Example**：
-    #     {example_2}
-    #     """,
+        **Example**：
+        {example_2}
+        """,
         f"""
         **Omission of Particles (助詞の省略・誤用) Detection**
         - Detect omissions of the particles「の」「を」「は」.All other cases are excluded from the check.
