@@ -5172,7 +5172,10 @@ async def get_original(input_data, org_text, file_name="", target_text=""):
                 if org_text[1: 5] in similar_content[: 10]:
                     src_content = similar_content
                     break
-
+            elif re.search("140672", file_name):
+                if org_text[1: 6] in similar_content[: 10]:
+                    src_content = similar_content
+                    break
             if similar_content:
                 score = SequenceMatcher(None, org_text, similar_content).ratio()
                 if score > src_score:
@@ -6286,19 +6289,19 @@ def get_prompt(corrected):
         "取り組みし"は自然な連用形表現のため、修正不要'
         {example_70}
         """,
-        f"""
-       **Punctuation (句読点) Usage Check**
-        -Check the sentence-ending punctuation and comma usage only within complete sentences.
-        **Proofreading Requirements:**
-        -Only detect missing「。」at the end of grammatically complete sentences.
-        -If the sentence already ends with「。」, do not suggest any correction.
-        -Do not flag missing or extra「。」in sentence fragments, headings, bullet points, or intentionally incomplete expressions.
-        -Check for excessive or missing「、」only within grammatically complete sentences.
-        -Do not flag cases where comma omission is stylistically natural and grammatically acceptable in Japanese (e.g.,「好感され月間では下落し」).
+    #     f"""
+    #    **Punctuation (句読点) Usage Check**
+    #     -Check the sentence-ending punctuation and comma usage only within complete sentences.
+    #     **Proofreading Requirements:**
+    #     -Only detect missing「。」at the end of grammatically complete sentences.
+    #     -If the sentence already ends with「。」, do not suggest any correction.
+    #     -Do not flag missing or extra「。」in sentence fragments, headings, bullet points, or intentionally incomplete expressions.
+    #     -Check for excessive or missing「、」only within grammatically complete sentences.
+    #     -Do not flag cases where comma omission is stylistically natural and grammatically acceptable in Japanese (e.g.,「好感され月間では下落し」).
 
-        **Example**：
-        {example_2}
-        """,
+    #     **Example**：
+    #     {example_2}
+    #     """,
         f"""
         **Omission of Particles (助詞の省略・誤用) Detection**
         - Detect omissions of the particles「の」「を」「は」.All other cases are excluded from the check.
