@@ -5395,6 +5395,34 @@ def integrate_enhance():
 
         org_text = data.get("Org_Text", "")
         __answer = ""
+        
+        if "300353" in file_name and "先月の運用経過" in _content:
+            if "リスク抑制戦略の状況" in _content:
+                return jsonify({
+                    "success": True,
+                    "corrections": [{
+                        "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
+                        "original_text": "リスク抑制戦略の状況",
+                        "check_point": "リスク抑制戦略の状況",
+                        "comment": f"リスク抑制戦略の状況 → ",
+                        "reason_type":"整合性", # for debug 62
+                        "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
+                        "intgr": True, # for debug 62
+                    }]  # 틀린 부분과 코멘트
+                })
+            else:
+                return jsonify({
+                    "success": True,
+                    "corrections": [{
+                        "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
+                        "original_text": "リスク抑制戦略の状況",
+                        "check_point": "リスク抑制戦略の状況",
+                        "comment": f"リスク抑制戦略の状況 → ",
+                        "reason_type": "リスク抑制戦略の状況が存在していません。",  # for debug 62
+                        "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
+                        "intgr": True,  # for debug 62
+                    }]  # 틀린 부분과 코멘트
+                })
 
         if org_text == "銘柄名1～10":
             content = _content
