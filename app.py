@@ -5406,7 +5406,7 @@ def integrate_enhance():
                         "check_point": "リスク抑制戦略の状況",
                         "comment": f"リスク抑制戦略の状況 → ",
                         "reason_type":"整合性", # for debug 62
-                        "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
+                        "locations": [{"x0": 0, "x1": 0, "y0": 0, "y1": 0}],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
                         "intgr": True, # for debug 62
                     }]  # 틀린 부분과 코멘트
                 })
@@ -5419,7 +5419,7 @@ def integrate_enhance():
                         "check_point": "リスク抑制戦略の状況",
                         "comment": f"リスク抑制戦略の状況 → ",
                         "reason_type": "リスク抑制戦略の状況が存在していません。",  # for debug 62
-                        "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
+                        "locations": [{"x0": 0, "x1": 0, "y0": 0, "y1": 0}],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
                         "intgr": True,  # for debug 62
                     }]  # 틀린 부분과 코멘트
                 })
@@ -5579,7 +5579,7 @@ def integrate_enhance():
                     "check_point": content,
                     "comment": f"{content} → ",
                     "reason_type":"整合性", # for debug 62
-                    "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
+                    "locations": [{"x0": 0, "x1": 0, "y0": 0, "y1": 0}],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
                     "intgr": True, # for debug 62
                 }]  # 틀린 부분과 코멘트
             })
