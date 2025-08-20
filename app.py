@@ -3496,8 +3496,16 @@ def find_corrections(corrected_text,input_text,pageNumber):
     
     return corrections
 
+# 814 ,add dotfind 句読点
+#------------------------------------------------------------
+def check_fullwidth_period(sentence):
+    """문장이 전각 마침표(。)로 끝나는지 체크"""
+    return sentence.endswith("。")
+
+#---------------------------------------------------------------------------
+
 # 0623 debug
-def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type):
+def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list):
     """
     GPT-4의 응답 결과(corrected_text)를 분석하여 틀린 부분을 찾습니다.
     """
@@ -3796,6 +3804,21 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type):
                 "reason_type": item.get("分類", "")
             })
 
+#---------------------
+# dotfind 句点の追加  句読点  
+    for sentence in input_list:
+        if not check_fullwidth_period(sentence):
+            sentence_split = re.sub(r"\s+$", "", sentence)[-30:]
+            corrections.append({
+                "check_point": "句点の追加",
+                "comment": f"{sentence_split} → {sentence_split}。",
+                "intgr": False,
+                "locations": [],
+                "original_text": sentence_split,
+                "page": pageNumber,
+                "reason_type": "句点の追加",
+            })
+#---------------------
     return corrections
 
 def extract_text(input_text, original_text):
@@ -4941,6 +4964,7 @@ def integeration_ruru_cosmos():
         target_type = data['Target_Type']
         target_condition = data['Target_Condition']
         result = data['result']
+        Target_Consult = data['Target_Consult']
         flag = data['flag']
         id = data['id']
         No = data['No']
@@ -4953,7 +4977,7 @@ def integeration_ruru_cosmos():
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
 
         # Cosmos DB에 저장할 아이템 생성
-        item = {
+        common_item = {
             "id": id,
             "No": No,
             "fundType": fundType,
@@ -4968,9 +4992,16 @@ def integeration_ruru_cosmos():
             "flag": flag,
             "Target_Type": target_type,
             "Target_Condition": target_condition,
-            "result": result,
             "updateTime": datetime.utcnow().isoformat(),  # 현재 시간
         }
+
+        if flag == 'close':
+            common_item["result"] = result
+
+        elif flag == 'open':
+            common_item["Target_Consult"] = Target_Consult
+
+        item = common_item
 
         # 중복 데이터가 있으면 업데이트, 없으면 삽입
         if items:
@@ -6303,7 +6334,7 @@ def get_prompt(corrected):
         - Ensure each kanji accurately reflects the intended meaning.
         - Detect cases where non-verb terms are incorrectly used as if they were verbs.
         - Do **not** treat orthographic variants involving okurigana omission or abbreviation（e.g., 書き換え vs 書換え, 読み取る vs 読取る, 取り込む vs 取込）as typographical errors
-    　　 -Detect expressions where omitted repeated phrases (e.g., "の上昇", "の低下") may cause ambiguity between multiple items, and suggest repeating the term explicitly for each item to ensure clarity.
+        -Detect expressions where omitted repeated phrases (e.g., "の上昇", "の低下") may cause ambiguity between multiple items, and suggest repeating the term explicitly for each item to ensure clarity.
         - Do not modify expressions that are grammatically valid and commonly accepted in Japanese, even if alternative phrasing may seem more natural. For example, do not rewrite "中国、米国など" as "中国や米国など" unless required. However, grammatically incorrect forms like "中国、米国など国" must be corrected to "中国、米国などの国".
         
         **missing Example*：
@@ -6317,7 +6348,7 @@ def get_prompt(corrected):
         "取り組みし"は自然な連用形表現のため、修正不要'
         {example_70}
         """,
-    #     f"""
+    #   f"""
     #    **Punctuation (句読点) Usage Check**
     #     -Check the sentence-ending punctuation and comma usage only within complete sentences.
     #     **Proofreading Requirements:**
@@ -6326,6 +6357,38 @@ def get_prompt(corrected):
     #     -Do not flag missing or extra「。」in sentence fragments, headings, bullet points, or intentionally incomplete expressions.
     #     -Check for excessive or missing「、」only within grammatically complete sentences.
     #     -Do not flag cases where comma omission is stylistically natural and grammatically acceptable in Japanese (e.g.,「好感され月間では下落し」).
+
+    #     **Example**：
+    #     {example_2}
+    #     """,
+    #     f"""
+    #    **Punctuation (「。」and 「、」) Usage Check**
+    #     【Scope】
+    #     - Sentences containing both a subject and predicate, ending in a terminal (sentence-final) form
+    #     - Only check punctuation within a complete sentence
+
+    #     【Exclusions】
+    #     - Sentence fragments, headings, bullet points, or intentionally incomplete expressions
+    #     - Conversational or poetic styles where punctuation is intentionally omitted
+
+    #     【Complete Sentence Detection Logic Example】
+    #     1. Check if the sentence ends with one of the following terminal forms:
+    #     - Verb terminal form (e.g., 「行う」「行いました」「行ないます」)
+    #     - Adjective terminal form (e.g., 「高い」「低かった」)
+    #     - Noun + auxiliary verb “だ/です” (e.g., 「方針です」「必要だ」)
+    #     - Noun + particle “である” (e.g., 「重要である」)
+    #     2. If the sentence ends with a comma 「、」, treat it as incomplete
+    #     3. If the sentence ends with closing brackets or quotation marks (「」, （）), check the part outside the brackets for terminal form
+    #     4. If the sentence ends in a terminal form but lacks 「。」, flag as missing punctuation
+
+    #     【Checks】
+    #     1. Sentence-ending punctuation:
+    #     - If a complete sentence does not end with 「。」, suggest adding it
+    #     - If it already ends with 「。」, no correction is needed
+    #     2. Comma usage:
+    #     - Excessive: 「、」 appears repeatedly in an unnatural way within the same clause
+    #     - Missing: The sentence is too long and hard to read without commas
+    #     - Do not flag stylistically natural omissions (e.g., 「好感され月間では下落し」)
 
     #     **Example**：
     #     {example_2}
@@ -6412,6 +6475,7 @@ def opt_kanji():
         
         data = request.json
         input = data.get("full_text", "") # kanji api need full text
+        input_list = data.get("input", "") # kanji api need full text
 
         pdf_base64 = data.get("pdf_bytes", "")
         excel_base64 = data.get("excel_bytes", "")
@@ -6432,7 +6496,7 @@ def opt_kanji():
             return jsonify({"success": False, "error": "No input provided"}), 400
         
 
-        corrections = find_corrections_wording(input, pageNumber,tenbrend,fund_type)
+        corrections = find_corrections_wording(input, pageNumber,tenbrend,fund_type,input_list)
         
         try:
             pdf_bytes = base64.b64decode(pdf_base64)
@@ -6877,7 +6941,74 @@ def opt_wording():
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
-    
+
+# 820 ,pre-process
+def get_words(converted_data, fund_type):
+    filter_words = {
+        " 「日本プロ": True,
+        " 日本取引所": True,
+        " 15日に東": True,
+        " 日本経済は": True,
+        "  (    ": True,
+        " )    ": True,
+        " 地方主要都": True,
+        " )    ": True,
+        " 相対的に利": True,
+        " ポートフォ": True,
+        " 米国と中国": True,
+        " 米国の債券": True,
+        " ・・・ 景": True,
+        " ・・・ ド": True,
+        " ・・・ 日": True,
+        " ・・・ F": True,
+        " ・・・ 長": True,
+        " ・・・ ガ": True,
+        " 為替 ・・": True,
+        " ＜月間の基": True,
+        " 長め（地域": True,
+        " 現在 )": True,
+        " 2025年": True,
+        " 愛称：3県": True,
+        " 当ファンド": True,
+        " 2024年": True,
+        " 新たなデジ": True,
+        " 直近では、": True,
+        " 2025年": True,
+        "  (2025": True,
+        "現在）": True,
+        " ( ": True,
+        "現在 ": True,
+        "現在)": True,
+        " 現在）": True,
+        "１": True,
+        "ＦＵＮＤＳ": True,
+        "ＮＥＸＴ": True,
+        "（適格機関": True,
+        ")\n": True,
+        "クスファンド\nファンドは、値": True,
+        "#VALUE!\n野村": True,
+        "）ので、基準価額は変動します。": True,
+        "（USD）": True,
+    }
+    result_data = []
+    for data in converted_data:
+        afterChange = data["comment"].split("→")[-1].strip()
+        beforeChange = data["original_text"]
+        if data["reason_type"] != "常用外漢字の使用" and data["reason_type"] != "新規銘柄" and data["reason_type"] != "不自然な空白":
+            if afterChange == beforeChange:
+                continue
+        if "日付表記として不自然なため" in data["reason_type"]:
+            continue
+        if beforeChange in ["先月の投資環境", "10", "先月の運用経過", "今後の運用方針", "必ず", "銘柄\n純資産比", "会社（以下「ＪＰＸ」という。", "（USD）"]:
+            continue
+        if re.search(r"^\d+/\d", beforeChange):
+            continue
+        if fund_type == "public" and filter_words.get(beforeChange):
+            continue
+        if re.search(r"現在|詳しくは、|（運用実績、分配金は、|4月のJ-|あります）。|当ファンド", afterChange):
+            continue
+        result_data.append(data)
+    return result_data
 
 # ruru_update_save_corrections
 @app.route('/api/save_corrections', methods=['POST'])
@@ -6922,6 +7053,7 @@ def save_corrections():
             existing_corrections = result.get("corrections", [])
 
         # 기존과 신규를 모두 합친 후, dict_key 기준 중복 제거
+        corrections = get_words(corrections, fund_type)
         final_corrections  = existing_corrections + corrections
 
         # 새 데이터 생성
