@@ -198,7 +198,10 @@ LOG_RECORD_CONTAINER_NAME = "log_record"
 FILE_MONITOR_ITEM = "file_monitor_item"
 TENBREND_CONTAINER_NAME = 'tenbrend_history'
 PROXYINFO_CONTAINER_NAME = 'proxyInfo'
+INTEGERATION_RURU_CONTAINER_NAME = 'integeration_ruru'
 #-----------------------------------------------------------------
+integeration_container = get_db_connection(INTEGERATION_RURU_CONTAINER_NAME)
+
 # List proxy
 @app.route('/api/proxyinfo', methods=['GET'])
 def get_proxyinfos():
@@ -3114,6 +3117,7 @@ replace_rules = {
     '中銀': '中央銀行', #623
     '行われ': '行なわれ', #623
     '行い': '行ない', #623
+    '行わない': '行なわない', #821
     '行った':'行なった',
     '行う': '行なう', #623
     '行って': '行なって', #623
@@ -3221,6 +3225,7 @@ replace_rules1 ={
     '中銀': '中央銀行', #623
     '行われ': '行なわれ', #623
     '行い': '行ない', #623
+    '行わない': '行なわない', #821
     '行った':'行なった',
     '行う': '行なう', #623
     '行って': '行なって', #623
@@ -3807,6 +3812,9 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
 #---------------------
 # dotfind 句点の追加  句読点  
     for sentence in input_list:
+        if "（出所）" in sentence:
+            continue
+        
         if not check_fullwidth_period(sentence):
             sentence_split = re.sub(r"\s+$", "", sentence)[-30:]
             corrections.append({
@@ -3935,6 +3943,7 @@ def add_comments_to_pdf(pdf_bytes, corrections):
         text_instances = [fitz.Rect(locations["x0"], locations["y0"], locations["x1"], locations["y1"])]
         if int(text_instances[0][0]) == 0:
             continue
+        colorSetFill= (1, 1, 0)
 
         # 페이지 번호 유효성 검사
         if page_num < 0 or page_num >= len(doc):
@@ -3942,9 +3951,14 @@ def add_comments_to_pdf(pdf_bytes, corrections):
 
         page = doc.load_page(page_num)
 
+        if correction["intgr"]:
+            colorSetFill = (172/255, 228/255, 230/255)
+        else:
+            colorSetFill= (1, 1, 0)
+
         for rect in text_instances:
             highlight = page.add_rect_annot(rect)
-            highlight.set_colors(stroke=None, fill=(1, 1, 0))
+            highlight.set_colors(stroke=None, fill=colorSetFill)
             highlight.set_opacity(0.5)
             highlight.set_info({
                 "title": reason_type,  # 可选：显示在注释框标题栏
@@ -4136,6 +4150,19 @@ def save_to_cosmos(file_name, response_data, link_url, fund_type, upload_type=''
                 
     except CosmosHttpResponseError as e:
         logging.error(f"❌Cosmos DB save error: {e}")
+
+@app.route('/api/file_status', methods=['POST'])
+def get_file_status():
+    data = request.json
+    fund_type = data.get("fund_type", "public_Fund")
+    file_name = data.get("file_name")
+    container = public_container if fund_type == 'public_Fund' else private_container
+    if file_name:
+        query = f"SELECT * FROM c WHERE c.fileName = '{file_name}'"
+        items = list(container.query_items(query=query, enable_cross_partition_query=True))
+        if items:
+            return jsonify({"success": True, "status": True}), 200
+    return jsonify({"success": True, "status": False}), 200
 
 
 @app.route('/api/write_upload_save', methods=['POST'])
@@ -4945,7 +4972,7 @@ def auto_save_log_cosmos():
 
 
 # integeration ruru
-INTEGERATION_RURU_CONTAINER_NAME = 'integeration_ruru'
+
 @app.route('/api/integeration_ruru_cosmos', methods=['POST'])
 def integeration_ruru_cosmos():
     try:
@@ -5036,8 +5063,33 @@ def get_integeration_ruru_cosmos():
     # Cosmos DB 연결
     container = get_db_connection(INTEGERATION_RURU_CONTAINER_NAME)
 
+    # 요청 파라미터 읽기
+    flag = request.args.get("flag")
+    base_month = request.args.get("Base_Month")
+
     query = "SELECT * FROM c"
-    users = list(container.query_items(query=query, enable_cross_partition_query=True))
+    parameters = []
+
+    # 조건 추가
+    if flag and base_month:
+        query += " WHERE c.flag = @flag AND c.Base_Month = @base_month"
+        parameters = [
+            {"name": "@flag", "value": flag},
+            {"name": "@base_month", "value": base_month}
+        ]
+    elif flag:
+        query += " WHERE c.flag = @flag"
+        parameters = [{"name": "@flag", "value": flag}]
+    elif base_month:
+        query += " WHERE c.Base_Month = @base_month"
+        parameters = [{"name": "@base_month", "value": base_month}]
+
+    users = list(container.query_items(
+        query=query,
+        parameters=parameters,
+        enable_cross_partition_query=True
+    ))
+
     response = {
         "code": 200,
         "data": users
@@ -5099,6 +5151,33 @@ def get_rule():
     except Exception as e:
         logging.error(f"❌ Error occurred while searching DB: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
+    
+
+@app.route('/api/open_cosmos_data', methods=['POST'])
+def get_open_data():
+    data = request.json
+    f_code = data.get("f_code", "")
+    flag = data.get("flag", "open")
+    base_month = data.get("base_month", "M2411")
+    query = f"SELECT * FROM c WHERE c.flag = '{flag}' AND c.base_month = '{base_month}' and c.Fcode = '{f_code}'"
+    items = list(integeration_container.query_items(query=query, enable_cross_partition_query=True))
+
+    if items:
+        return jsonify({"success": True, "data": items}), 200
+    else:
+        return jsonify({"success": False, "message": "No matching data found in DB."}), 200
+
+@app.route('/api/save_cosmos_data', methods=['POST'])
+def save_open_data():
+    data = request.json
+    item = data.get("item")
+
+    if item:
+        integeration_container.upsert_item(item)
+        return jsonify({"success": True}), 200
+    else:
+        return jsonify({"success": False}), 200
+
 
 @app.route('/api/refer_operate', methods=['POST'])
 def insert_rule():
@@ -6993,12 +7072,19 @@ def get_words(converted_data, fund_type):
     result_data = []
     for data in converted_data:
         afterChange = data["comment"].split("→")[-1].strip()
-        beforeChange = data["original_text"]
+        beforeChange = data["original_text"].strip()
         if data["reason_type"] != "常用外漢字の使用" and data["reason_type"] != "新規銘柄" and data["reason_type"] != "不自然な空白":
             if afterChange == beforeChange:
                 continue
         if "日付表記として不自然なため" in data["reason_type"]:
             continue
+        #---821,fix the error disable
+
+        if "正しい観点" in data["reason_type"]:
+            continue
+        if "修正不要" in data["reason_type"]:
+            continue
+        #---821,-----------------
         if beforeChange in ["先月の投資環境", "10", "先月の運用経過", "今後の運用方針", "必ず", "銘柄\n純資産比", "会社（以下「ＪＰＸ」という。", "（USD）"]:
             continue
         if re.search(r"^\d+/\d", beforeChange):
