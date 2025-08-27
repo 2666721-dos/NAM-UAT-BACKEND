@@ -3814,7 +3814,7 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
     for sentence in input_list:
         if "（出所）" in sentence:
             continue
-        
+
         if not check_fullwidth_period(sentence):
             sentence_split = re.sub(r"\s+$", "", sentence)[-30:]
             corrections.append({
@@ -5032,10 +5032,10 @@ def integeration_ruru_cosmos():
 
         # 중복 데이터가 있으면 업데이트, 없으면 삽입
         if items:
-            item["_etag"] = items[0]["_etag"]  # 기존 데이터의 etag를 사용하여 업데이트
-            container.upsert_item(item)
-            # items[0].update(item)
-            # container.upsert_item(items[0])
+            # item["_etag"] = items[0]["_etag"]  # 기존 데이터의 etag를 사용하여 업데이트
+            # container.upsert_item(item)
+            items[0].update(item)
+            container.upsert_item(items[0])
             logging.info("✅ Data updated in Cosmos DB successfully.")
             return jsonify({"success": True, "message": "Data updated successfully."}), 200
         else:
@@ -6597,10 +6597,23 @@ def opt_kanji():
 # 2. PDF download endpoint
 @app.route('/api/download_pdf/<token>', methods=['GET'])
 def download_pdf(token):
+
     temp_path = os.path.join("/tmp", token)
     if not os.path.exists(temp_path):
         return jsonify({"error": "File not found"}), 404
-    return send_file(temp_path, mimetype='application/pdf', as_attachment=True)
+    # return send_file(temp_path, mimetype='application/pdf', as_attachment=True)
+    try:
+        # send_file 후 즉시 삭제
+        return send_file(
+            temp_path,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=token  # Flask 2.x 이상
+        )
+    finally:
+        # 파일 삭제 → 1회용 정책 유지
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 
