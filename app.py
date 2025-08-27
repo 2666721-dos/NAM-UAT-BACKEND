@@ -6598,9 +6598,12 @@ def opt_kanji():
 @app.route('/api/download_pdf/<token>', methods=['GET'])
 def download_pdf(token):
 
-    temp_path = os.path.join("/tmp", token)
+    # temp_path = os.path.join("/tmp", token)
+    PDF_STORAGE = "/var/data/pdfs"
+    temp_path = os.path.join(PDF_STORAGE, token)
+
     if not os.path.exists(temp_path):
-        return jsonify({"error": "File not found"}), 404
+        return jsonify({"error": "File not found!"}), 404
     # return send_file(temp_path, mimetype='application/pdf', as_attachment=True)
     try:
         # send_file 후 즉시 삭제
