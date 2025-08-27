@@ -6598,25 +6598,10 @@ def opt_kanji():
 @app.route('/api/download_pdf/<token>', methods=['GET'])
 def download_pdf(token):
 
-    # temp_path = os.path.join("/tmp", token)
-    PDF_STORAGE = "/var/data/pdfs"
-    temp_path = os.path.join(PDF_STORAGE, token)
-
+    temp_path = os.path.join("/tmp", f"{token}.pdf")
     if not os.path.exists(temp_path):
-        return jsonify({"error": "File not found!"}), 404
-    # return send_file(temp_path, mimetype='application/pdf', as_attachment=True)
-    try:
-        # send_file 후 즉시 삭제
-        return send_file(
-            temp_path,
-            mimetype='application/pdf',
-            as_attachment=True,
-            download_name=token  # Flask 2.x 이상
-        )
-    finally:
-        # 파일 삭제 → 1회용 정책 유지
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        return jsonify({"error": "File not found"}), 404
+    return send_file(temp_path, mimetype='application/pdf', as_attachment=True)
 
 
 
