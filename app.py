@@ -6597,11 +6597,14 @@ def opt_kanji():
 # 2. PDF download endpoint
 @app.route('/api/download_pdf/<token>', methods=['GET'])
 def download_pdf(token):
+    # token에 이미 .pdf가 붙어 있을 경우 그대로 사용
+    file_name = token if token.lower().endswith('.pdf') else f"{token}.pdf"
+    temp_path = os.path.join("/tmp", file_name)
 
-    temp_path = os.path.join("/tmp", f"{token}.pdf")
+    # temp_path = os.path.join("/tmp", f"{token}.pdf")
     if not os.path.exists(temp_path):
         return jsonify({"error": "File not found1"}), 404
-    return send_file(temp_path, mimetype='application/pdf', as_attachment=True, download_name=f"{token}.pdf")
+    return send_file(temp_path, mimetype='application/pdf', as_attachment=True, download_name=file_name)
 
 
 
