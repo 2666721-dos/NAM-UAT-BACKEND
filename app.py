@@ -6600,8 +6600,8 @@ def download_pdf(token):
 
     temp_path = os.path.join("/tmp", f"{token}.pdf")
     if not os.path.exists(temp_path):
-        return jsonify({"error": "File not found"}), 404
-    return send_file(temp_path, mimetype='application/pdf', as_attachment=True)
+        return jsonify({"error": "File not found1"}), 404
+    return send_file(temp_path, mimetype='application/pdf', as_attachment=True, download_name=f"{token}.pdf")
 
 
 
