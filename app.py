@@ -7101,7 +7101,7 @@ def get_words(converted_data, fund_type):
     for data in converted_data:
         afterChange = data["comment"].split("→")[-1].strip()
         beforeChange = data["original_text"].strip()
-        if data["reason_type"] != "常用外漢字の使用" and data["reason_type"] != "新規銘柄" and data["reason_type"] != "不自然な空白":
+        if data["reason_type"] not in ["常用外漢字の使用", "新規銘柄", "不自然な空白", "同一表現", "異常な色"]:
             if afterChange == beforeChange:
                 continue
         if "日付表記として不自然なため" in data["reason_type"]:
