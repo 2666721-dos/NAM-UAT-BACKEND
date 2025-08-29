@@ -2194,38 +2194,27 @@ def convert_format(filtered_items):
         if correction["locations"]:
             # 위치 정보가 있는 경우 변환
             # for idx, loc in enumerate(correction["locations"]):  # 모든 위치 정보를 처리
-            loc = correction["locations"][0]
-            pdf_height = loc.get("pdf_height", 792)  # PDF 높이 (기본값: A4 크기, 792pt)
-
-            # 첫 번째 위치만 x 좌표를 조정
-            #debug
-            # x = loc["x0"] - 22 if idx == 0 else loc["x0"]
-            position = {
-                "x": loc["x0"],  # x 좌표는 그대로 사용
-                "y": pdf_height - loc["y1"] + 50,  # y 좌표를 PDF 높이를 기준으로 변환
-                "width": loc["x1"] - loc["x0"],  # 너비 계산
-                "height": loc["y1"] - loc["y0"],  # 높이 계산
-            }
-
+            # 829 fix
             # checkResults에 페이지별 그룹화
             if page not in checkResults:
                 checkResults[page] = [{"title": filtered_items["fileName"], "items": []}]
 
-            # 중복 체크
-            if correction["intgr"]:
-                checkResults[page][0]["items"].append({
-                    "name": name,
-                    "color": colorSet, #"rgba(255, 255, 0, 0.5)", # green background rgba(0, 255, 0, 0.5)
-                    "page": page,
-                    "position": position,
-                    "changes": [change],
-                    "reason_type":correction["reason_type"],
-                    "check_point":correction["check_point"],
-                    "original_text":correction["original_text"],
-                    })
-            else:
-                existing_item = next((item for item in checkResults[page][0]["items"] if item["name"] == name and item["changes"] == [change]), None)
-                if not existing_item:
+            # loc = correction["locations"][0]
+            for loc in correction["locations"]:
+                pdf_height = loc.get("pdf_height", 792)  # PDF 높이 (기본값: A4 크기, 792pt)
+
+                # 첫 번째 위치만 x 좌표를 조정
+                #debug
+                # x = loc["x0"] - 22 if idx == 0 else loc["x0"]
+                position = {
+                    "x": loc["x0"],  # x 좌표는 그대로 사용
+                    "y": pdf_height - loc["y1"] + 50,  # y 좌표를 PDF 높이를 기준으로 변환
+                    "width": loc["x1"] - loc["x0"],  # 너비 계산
+                    "height": loc["y1"] - loc["y0"],  # 높이 계산
+                }
+
+                # 중복 체크
+                if correction["intgr"]:
                     checkResults[page][0]["items"].append({
                         "name": name,
                         "color": colorSet, #"rgba(255, 255, 0, 0.5)", # green background rgba(0, 255, 0, 0.5)
@@ -2236,6 +2225,24 @@ def convert_format(filtered_items):
                         "check_point":correction["check_point"],
                         "original_text":correction["original_text"],
                         })
+                else:
+                        existing_item = any(
+                                item["name"] == name and
+                                item["changes"] == [change] and
+                                item["position"] == position
+                                for item in checkResults[page][0]["items"]
+                            )
+                        if not existing_item:
+                            checkResults[page][0]["items"].append({
+                                "name": name,
+                                "color": colorSet, #"rgba(255, 255, 0, 0.5)", # green background rgba(0, 255, 0, 0.5)
+                                "page": page,
+                                "position": position,
+                                "changes": [change],
+                                "reason_type":correction["reason_type"],
+                                "check_point":correction["check_point"],
+                                "original_text":correction["original_text"],
+                                })
 
 
     return {'data': checkResults, 'code': 200}
@@ -3107,6 +3114,7 @@ replace_rules = {
     '地政学リスク': '地政学的リスク',
     'への組み入れ': 'の組み入れ',
     'マイナスに寄与': 'マイナスに影響',
+    'マイナス寄与': 'マイナス影響', #829
     '米国国債': '米国債',
     '新型コロナ': '新型コロナウイルス',
     'コロナウイルス': '新型コロナウイルス',
@@ -3124,7 +3132,7 @@ replace_rules = {
     '行われる': '行なわれる',
     'なりしました': 'なしました', #180015,628
     '買い付けました': '買い付けしました',
-    '買い付け': '買い付けし', #64977
+    # '買い付け': '買い付けし', #64977 , 829 fix
     '買付':'買い付け',
     '買付け':'買い付けし', #63207
     '売り付けました':'売り付けしました', #628
@@ -3153,6 +3161,10 @@ replace_rules = {
     '魅力度': '<sup>※</sup>魅力度',
     'フリーキャッシュフロー': 'フリーキャッシュフロー(税引後営業利益に減価償却費を加え、設備投資額と運転資本の増加を差し引いたもの )', #726
     'フリー・キャッシュフロー': 'フリーキャッシュフロー(税引後営業利益に減価償却費を加え、設備投資額と運転資本の増加を差し引いたもの )', #726
+
+    'ボラティリティ': 'ボラティリティ（価格変動性）', #829
+    'ファンダメンタルズ': 'ファンダメンタルズ（賃料や空室率、需給関係などの基礎的条件）', #829
+    
 }
 
 replace_rules1 ={
@@ -3215,6 +3227,7 @@ replace_rules1 ={
     '地政学リスク': '地政学的リスク',
     'への組み入れ': 'の組み入れ',
     'マイナスに寄与': 'マイナスに影響',
+    'マイナス寄与': 'マイナス影響', #829
     '米国国債': '米国債',
     '新型コロナ': '新型コロナウイルス',
     'コロナウイルス': '新型コロナウイルス',
@@ -3232,7 +3245,7 @@ replace_rules1 ={
     '行われる': '行なわれる',
     'なりしました': 'なしました', #180015,628
     '買い付けました': '買い付けしました',
-    '買い付け': '買い付けし', #64977
+    # '買い付け': '買い付けし', #64977 , 824fix
     '買付':'買い付け',
     '買付け':'買い付けし', #63207
     '売り付けました':'売り付けしました', #628
@@ -3332,7 +3345,12 @@ def opt_check_eng(content, rules):
             escaped_k = regcheck.escape(raw_key)
             escaped_v = regcheck.escape(full_key)
 
+            # ------------------------------
+            # 키워드 매칭 패턴 (괄호 있는 경우 + 없는 경우)
+            # ------------------------------
             new_k = escaped_k
+            paren_pattern = f"{escaped_k}（[^）]+）"
+
             if raw_key.isalpha() or raw_key in ["S&L", "M&A"]:
                 if raw_key == "OPEC":
                     new_k = f"(?<![a-zA-Z]){escaped_k}(?!プラス|[a-zA-Z])"
@@ -3356,6 +3374,7 @@ def opt_check_eng(content, rules):
                     new_k = f"(?<![a-zA-Z]){escaped_k}(?![a-zA-Z])"
 
             matched_full = regcheck.search(escaped_v, normalized_line)
+            matched_raw_with_paren = regcheck.search(paren_pattern, normalized_line)
             matched_raw = regcheck.search(new_k, normalized_line)
 
             # ✅ 정확한 full_key 첫 등장
@@ -3367,6 +3386,11 @@ def opt_check_eng(content, rules):
             # ✅ full_key 재등장
             elif matched_full and full_key in seen_full:
                 result.append({full_key: "删除"})
+            
+            elif matched_raw_with_paren:
+                result.append({matched_raw_with_paren.group(): full_key})
+                seen_raw.add(raw_key)
+                seen_full.add(full_key)
 
             # ✅ raw_key 첫 등장 && full_key는 이미 본 상태
             elif matched_raw and raw_key not in seen_raw:
@@ -3534,7 +3558,7 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
         })
 #-------------------
     if fund_type == 'public':
-        # （全角→半角） -0.09% → -0.09％
+        # （半角→全角） -0.09% → -0.09％
         pattern_half_width_katakana = r"[ｦ-ﾝ%＠]+"
         half_width_katakana_matches = regcheck.findall(pattern_half_width_katakana, input_text)
 
@@ -5121,7 +5145,7 @@ def ruru_search_db():
             results = [item if item.get("flag") else {"id": item["id"], "result": item["result"],"Org_Text":item["Org_Text"],"Org_Type":item["Org_Type"],"Target_Condition":item["Target_Condition"]} for item in items]
             return jsonify({"success": True, "data": results}), 200
         else:
-            return jsonify({"success": False, "message": "No matching data found in DB."}), 404
+            return jsonify({"success": False, "message": "No matching data found in DB."}), 200
 
     except Exception as e:
         logging.error(f"❌ Error occurred while searching DB: {e}")
@@ -7095,8 +7119,12 @@ def get_words(converted_data, fund_type):
             continue
         if fund_type == "public" and filter_words.get(beforeChange):
             continue
-        if re.search(r"現在|詳しくは、|（運用実績、分配金は、|4月のJ-|あります）。|当ファンド", afterChange):
+        if re.search(r"現在|詳しくは、|（運用実績、分配金は、|4月のJ-|あります）。|当ファンド|この報告書は、ファンドの運用状|）。|パフォーマンス動向は|当月の投資配分|買い建てし|買い付けしなどをした|贅沢品株の買|などの", afterChange):
             continue
+        # 827 fix
+        if afterChange == "。" and beforeChange == "":
+            continue
+        
         result_data.append(data)
     return result_data
 
