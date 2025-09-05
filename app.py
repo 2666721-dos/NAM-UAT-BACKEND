@@ -32,7 +32,7 @@ import zipfile
 import lxml.etree as ET
 import os
 import io
-import ast  # 상단에 임포트 추가
+import ast
 from azure.cosmos.exceptions import CosmosResourceNotFoundError, CosmosHttpResponseError
 import secrets
 from flask_session import Session
@@ -40,9 +40,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import urllib.parse
 from io import StringIO
 from asgiref.wsgi import WsgiToAsgi
-
 import asyncio
-#新追加的包 530
 import requests
 import pdfplumber
 from openpyxl.utils import get_column_letter
@@ -50,15 +48,16 @@ from copy import copy
 from difflib import SequenceMatcher
 import jaconv
 import regex as regcheck
+from docx import Document
 
-# 로그 형식 정의 (시간, 로그 레벨, 메시지)
+# 日志格式定义 (时间格式，日志级别，消息)
 log_format = '%(asctime)sZ: [%(levelname)s] %(message)s'
 
-# 로그 기본 설정: 시간 형식, 로그 레벨 및 출력 형식 설정
+# 日志设定: 时间格式，日志级别，消息
 logging.basicConfig(
-    level=logging.INFO,  # 로그 레벨 설정 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    format=log_format,   # 로그 형식 설정
-    handlers=[logging.StreamHandler()]  # 콘솔로 출력 (파일로도 출력 가능)
+    level=logging.INFO,  # 日志级别 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    format=log_format,   # 日志格式
+    handlers=[logging.StreamHandler()]
 )
 
 # Managed Identity Auth
@@ -75,8 +74,8 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)  # 会话有效
 app.config["SESSION_TYPE"] = "filesystem"  # 서버가 재시작되어도 세션 유지
 app.config["SESSION_COOKIE_SECURE"] = False  # 개발 환경에서는 False, 운영 환경에서는 True
 app.config["SESSION_COOKIE_HTTPONLY"] = True  # JavaScript에서 접근 불가능 (XSS 방지)
-app.config["SESSION_COOKIE_SAMESITE"] = "None"  # CSRF 보호 (CORS 요청 가능)
-app.config["SESSION_COOKIE_NAME"] = "secure_session"  # 세션 쿠키 이름
+app.config["SESSION_COOKIE_SAMESITE"] = "None"  # CSRF save (CORS)
+app.config["SESSION_COOKIE_NAME"] = "secure_session"  # session cookie name
 
 
 Session(app)
@@ -149,14 +148,14 @@ class AzureTokenCache:
 
     def _refresh_loop(self):
         while True:
-            time.sleep(30)  # 30초마다 실행하여 만료 여부 확인
-            if time.time() >= self.token_expires - 600:  # 10분 전에 갱신
+            time.sleep(30)
+            if time.time() >= self.token_expires - 600:
                 self._refresh_token()
 
     def _format_time(self, timestamp):
         """디버깅용 시간 포맷팅"""
         local_time = time.localtime(timestamp)
-        adjusted_time = time.mktime(local_time) + (8 * 3600)  # 8시간을 초 단위로 추가
+        adjusted_time = time.mktime(local_time) + (8 * 3600)  # 8小时
         return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(adjusted_time))
 # -------------------------------------------------------------------
 token_cache = AzureTokenCache()
@@ -169,12 +168,12 @@ openai.api_version = os.getenv("AZURE_OPENAI_API_VERSION")  # API Version
 deployment_id = os.getenv("AZURE_OPENAI_MODEL")  # Get Deploy Name(mini-ZZ)
 _deployment_id = os.getenv("AZURE_OPENAI_MODEL_4")  # Get Deploy Name(mini-ZZ)
 
-# Cosmos DB 연결 설정
+# Cosmos DB 连接 
 COSMOS_DB_URI = os.getenv("COSMOS_DB_URI")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 CONTAINER_NAME = os.getenv("CONTAINER_NAME")  # debug not used
 
-# Azure Storage 계정 URL & 컨테이너명
+# Azure Storage
 ACCOUNT_URL = os.getenv("ACCOUNT_URL")
 STORAGE_CONTAINER_NAME = os.getenv("STORAGE_CONTAINER_NAME")
 
@@ -185,13 +184,13 @@ PDF_DIR = ACCOUNT_URL + STORAGE_CONTAINER_NAME
 
 # Cosmos DB
 def get_db_connection(CONTAINER):
-    # Cosmos DB 클라이언트 연결
+    # Cosmos DB 链接客户端
     client = CosmosClient(COSMOS_DB_URI, credential=credential)
     database = client.get_database_client(DATABASE_NAME)
     container = database.get_container_client(CONTAINER)
     print("Connected to Azure Cosmos DB SQL API")
     logging.info("Connected to Azure Cosmos DB SQL API")
-    return container  # Cosmos DB의 컨테이너 객체 반환
+    return container  # Cosmos DB
 
 #-----------------------------------------------------------------
 LOG_RECORD_CONTAINER_NAME = "log_record"
@@ -205,7 +204,7 @@ integeration_container = get_db_connection(INTEGERATION_RURU_CONTAINER_NAME)
 # List proxy
 @app.route('/api/proxyinfo', methods=['GET'])
 def get_proxyinfos():
-    # Cosmos DB 연결
+    # Cosmos DB 连接
     container = get_db_connection(PROXYINFO_CONTAINER_NAME)
     
     query = "SELECT * FROM c"
@@ -226,10 +225,10 @@ def create_proxyuser():
     if not username or not password:
         return jsonify({"error": "Missing username or password"}), 400
 
-    # Cosmos DB 연결
+    # Cosmos DB 连接
     container = get_db_connection(PROXYINFO_CONTAINER_NAME)
 
-    # 기존 사용자 확인
+    # 确认用户
     query = "SELECT * FROM c WHERE c.username = @username"
     params = [dict(name="@username", value=username)]
     existing_users = list(container.query_items(
@@ -244,10 +243,9 @@ def create_proxyuser():
     user_item = {
         'id': str(uuid.uuid4()),
         'username': username,
-        'password': password  # 비밀번호 해싱
+        'password': password  # 密码 hashing
     }
     container.create_item(body=user_item)
-    # 응답에 code: 200 추가
     response = {
         "code": 200,
         "data": user_item
@@ -303,7 +301,7 @@ USERINFO_CONTAINER_NAME = 'userInfo'
 #----------------------User CRUD--------
 @app.route('/api/users', methods=['GET'])
 def get_users():
-    # Cosmos DB 연결
+    # Cosmos DB 连接
     container = get_db_connection(USERINFO_CONTAINER_NAME)
 
     query = "SELECT * FROM c"
@@ -325,7 +323,7 @@ def create_user():
 
     container = get_db_connection(USERINFO_CONTAINER_NAME)
 
-    # 기존 사용자 확인
+    # 确认用户
     query = "SELECT * FROM c WHERE c.username = @username"
     params = [dict(name="@username", value=username)]
     existing_users = list(container.query_items(
@@ -1752,7 +1750,7 @@ def ask_gpt():
         """  
         # ChatCompletion Call
         response = openai.ChatCompletion.create(
-        # OpenAI API 호출을 asyncio에서 비동기로 실행
+        # OpenAI API 调用 asyncio
         # loop = asyncio.get_event_loop()
         # response = await loop.run_in_executor(None, lambda: openai.ChatCompletion.create(
             deployment_id=deployment_id,  # Deploy Name
@@ -1809,7 +1807,7 @@ def convert_logs(items):
 APPLOG_CONTAINER_NAME='appLog'
 @app.route('/api/applog', methods=['GET'])
 def get_applog():
-    # Cosmos DB 연결
+    # Cosmos DB 连接
     container = get_db_connection(APPLOG_CONTAINER_NAME)
 
     # Cosmos DB에서 데이터를 쿼리하여 가져오기
@@ -1828,7 +1826,7 @@ def get_applog():
 # azure Cosmos DB
 @app.route('/api/faqs', methods=['GET'])
 def get_faq():
-    # Cosmos DB 클라이언트 연결,ENV에서 받아온다다
+    # Cosmos DB 链接客户端,ENV에서 받아온다다
     container=get_db_connection()
 
     # Cosmos DB에서 데이터를 쿼리하여 가져오기
@@ -1859,7 +1857,7 @@ def tenbrend():
     else:
         TENBREND_CONTAINER_NAME = 'tenbrend'
 
-    # Cosmos DB 클라이언트 연결
+    # Cosmos DB 链接客户端
     container = get_db_connection(TENBREND_CONTAINER_NAME)
     parameters = []
     if not raw_fcode:
@@ -1916,7 +1914,7 @@ def tenbrend_months():
     else:
         TENBREND_CONTAINER_NAME='tenbrend'
 
-    # Cosmos DB 클라이언트 연결
+    # Cosmos DB 链接客户端
     container = get_db_connection(TENBREND_CONTAINER_NAME)
 
     query = "SELECT c.months FROM c WHERE CONTAINS(c.fcode, @fcode)"
@@ -1956,7 +1954,7 @@ def tenbrend_stocks():
     else:
         TENBREND_CONTAINER_NAME='tenbrend'
 
-    # Cosmos DB 클라이언트 연결
+    # Cosmos DB 链接客户端
     container = get_db_connection(TENBREND_CONTAINER_NAME)
 
     query = "SELECT c.stocks FROM c WHERE CONTAINS(c.fcode, @fcode)"
@@ -2035,7 +2033,7 @@ def transform_data(items,fund_type):
             ]
         }
 
-        # report_data에 아이템 추가
+        # report_data里添加item
         reference["children"][0]["children"].append({
             "id": item.get('id'),
             "name": item.get('fileName'),
@@ -2044,7 +2042,7 @@ def transform_data(items,fund_type):
             "pdfPath": extract_pdf_path(item.get('link')),
         })
 
-        # mingbing_data에 아이템 추가
+        # mingbing_data里添加item
         reference["children"][1]["children"].append({
             "id": item.get('id'),
             "name": item.get('fileName'),
@@ -2055,7 +2053,7 @@ def transform_data(items,fund_type):
 
         fund_category.append(reference)
 
-        # checked_files 섹션 추가
+        # checked_files 追加session
         checked_files = {
             "id": "checked_files",
             "name": "📁 チェック対象ファイル",
@@ -2073,7 +2071,7 @@ def transform_data(items,fund_type):
             ]
         }
 
-        # individual_comments에 아이템 추가
+        # individual_comments里添加item
         checked_files["children"][0]["children"].append({
             "id": item.get('id'),  
             "name": item.get('fileName'),  
@@ -2084,7 +2082,7 @@ def transform_data(items,fund_type):
             "pdfPath": extract_pdf_path(item.get('link'))  
         })
 
-        # kobetsucomment에 아이템 추가
+        # kobetsucomment里添加item
         checked_files["children"][1]["children"].append({
             "id": item.get('id'),  
             "name": item.get('fileName'),
@@ -2126,7 +2124,7 @@ def handle_fund():
     container_name = f"{fund_type}_Fund"
     
     try:
-        # Cosmos DB 연결
+        # Cosmos DB 连接
         container = get_db_connection(container_name)
         logging.info(f"Connected to {container_name} container")
         
@@ -2267,7 +2265,7 @@ def handle_check_results():
     container_name = f"{fund_type}_Fund"
     
     try:
-        # Cosmos DB 연결
+        # Cosmos DB 连接
         container = get_db_connection(container_name)
         logging.info(f"Connected to {container_name} container")
         
@@ -2305,7 +2303,7 @@ def handle_menu():
 
     
     try:
-        # Cosmos DB 연결
+        # Cosmos DB 连接
         container = get_db_connection(container_name)
         logging.info(f"Connected to {container_name} container")
         
@@ -2346,7 +2344,7 @@ def handle_menu_all():
     container_name = f"{fund_type}_Fund"
     
     try:
-        # Cosmos DB 연결
+        # Cosmos DB 连接
         container = get_db_connection(container_name)
         logging.info(f"Connected to {container_name} container")
         
@@ -2375,7 +2373,7 @@ MONITORING_CONTAINER_NAME = "monitoring-status"
 @app.route('/api/monitoring-status', methods=['GET'])
 def get_monitoring_status():
     try:
-        # Cosmos DB 연결
+        # Cosmos DB 连接
         container = get_db_connection(MONITORING_CONTAINER_NAME)
         
         # Cosmos DB에서 데이터를 쿼리하여 가져오기
@@ -2399,7 +2397,7 @@ def get_monitoring_status():
 @app.route('/api/monitoring-status', methods=['PUT'])
 def update_monitoring_status():
     try:
-        # Cosmos DB 연결
+        # Cosmos DB 连接
         container = get_db_connection(MONITORING_CONTAINER_NAME)
         
         new_status = request.json.get('status', 'off')
@@ -2438,7 +2436,7 @@ def get_read_status():
     # 컨테이너 이름 결정
     container_name = f"{fund_type}_Fund"
     try:
-        # Cosmos DB 연결
+        # Cosmos DB 连接
         container = get_db_connection(container_name)
         logging.info(f"Connected to {container_name} container")
         
@@ -2479,7 +2477,7 @@ def update_read_status():
     container_name = f"{fund_type}_Fund"
     
     try:
-        # Cosmos DB 연결
+        # Cosmos DB 连接
         container = get_db_connection(container_name)
         logging.info(f"Connected to {container_name} container")
         
@@ -2519,7 +2517,7 @@ logging.basicConfig(level=logging.INFO)
 
 def get_storage_container():
     """
-    Azure AD RBAC 방식을 사용하여 Azure Blob Storage에 연결하고, ContainerClient 객체를 반환하는 함수.
+    Azure AD RBAC 방식을 사용하여 Azure Blob Storage에 连接하고, ContainerClient 객체를 반환하는 함수.
     :return: ContainerClient 객체
     """
     try:
@@ -2545,7 +2543,7 @@ def allowed_file(filename):
     :param filename: 파일명
     :return: bool
     """
-    ALLOWED_EXTENSIONS = {'pdf', 'xlsx','txt','xls','XLSX','xlm','xlsm','xltx','xltm','xlsb'}   # PDF와 Excel 파일 허용 
+    ALLOWED_EXTENSIONS = {'pdf', 'xlsx','txt','xls','XLSX','xlm','xlsm','xltx','xltm','xlsb','doc','docx'}   # PDF와 Excel 파일 허용 
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route('/api/test_token', methods=['GET'])
@@ -2708,107 +2706,111 @@ def check_upload():
                         "prompt_text": text  # Excel에서 읽어온 원본 텍스트
                     })
 
+                elif file.filename.endswith(('.doc', '.docx')):
+                    # Just Only DOCX format
+                    # docx = Document(io.BytesIO(file_bytes))
+                    # text = "\n".join([para.text for para in docx.paragraphs])
+
+                    file_base64 = base64.b64encode(file_bytes).decode('utf-8')
+
+                    return jsonify({
+                        "success": True,
+                        "original_text": "",
+                        "docx_bytes": file_base64,
+                        "file_name": file.filename
+                    })
+
                 elif regcheck.search(r'\.(xls|xlsx|XLSX|xlsm|xlm|xltx|xltm|xlsb)$',file.filename):
                     """
-                    엑셀 파일을 처리하여 GPT로 교정 후, 수정된 엑셀을 반환하는 함수
-                    :param file_bytes: 업로드된 엑셀 파일 바이너리
-                    :return: 수정된 엑셀 바이너리 (Base64 인코딩)
+                    :param file_bytes: 上传的base64文件
+                    :return: 修改完的base64 encoding
                     """
-                    # 🔹 1️⃣ corrected_map 초기화 (에러 방지)
-                    corrected_map = fetch_and_convert_to_dict()
-                    all_text=[]
+                    #--------------excel start------------------------------------------
+                    # 🔹 1️⃣ corrected_map init
+                    # corrected_map = fetch_and_convert_to_dict()
+                    # all_text=[]
 
-                    # 🔹 2️⃣ 압축 해제용 임시 폴더(또는 메모리상 in-memory zip)
-                    in_memory_zip = zipfile.ZipFile(io.BytesIO(file_bytes), 'r')
+                    # # 🔹 2️⃣ 临时保存内存里 in-memory zip)
+                    # in_memory_zip = zipfile.ZipFile(io.BytesIO(file_bytes), 'r')
 
-                    # 새 ZIP(수정본)을 만들기 위한 BytesIO
-                    output_buffer = io.BytesIO()
-                    new_zip = zipfile.ZipFile(output_buffer, 'w', zipfile.ZIP_DEFLATED, allowZip64=True)
+                    # # new ZIP 的 BytesIO
+                    # output_buffer = io.BytesIO()
+                    # new_zip = zipfile.ZipFile(output_buffer, 'w', zipfile.ZIP_DEFLATED, allowZip64=True)
 
-                    # 🔹 3️⃣ 모든 파일 반복                
-                    for item in in_memory_zip.infolist():
-                        file_data = in_memory_zip.read(item.filename)
+                    # # 🔹 3️⃣ 循环文件             
+                    # for item in in_memory_zip.infolist():
+                    #     file_data = in_memory_zip.read(item.filename)
+                    #     # 🔹 4️⃣ 是否drawingN.xml 检查 (处理文本框)
+                    #     if item.filename.startswith("xl/drawings/drawing") and item.filename.endswith(".xml"):
+                    #         try:
+                    #             tree = ET.fromstring(file_data)
+                    #             ns = {'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'}
+                    #             # 所有的 <a:t> 
+                    #             text_elements = []
+                    #             for t_element in tree.findall(".//a:t", ns):
+                    #                 original_text = t_element.text
+                    #                 if original_text:
+                    #                     parent = t_element.getparent()
+                    #                     if parent is not None:
+                    #                         x = parent.attrib.get('x', 0)
+                    #                         y = parent.attrib.get('y', 0)
+                    #                         text_elements.append((float(y), float(x), original_text.strip()))
+                    #             text_elements.sort(key=lambda item: (item[0], item[1]))
+                    #             for _, _, text in text_elements:
+                    #                 all_text.append(text)
+                    #             file_data = ET.tostring(tree, encoding='utf-8', standalone=False)
+                    #         except Exception as e:
+                    #             print(f"Warning: Parsing {item.filename} failed - {e}")
 
-                        # 🔹 4️⃣ drawingN.xml인지 체크 (텍스트 박스 포함 가능성 있음)
-                        if item.filename.startswith("xl/drawings/drawing") and item.filename.endswith(".xml"):
-                            try:
-                                tree = ET.fromstring(file_data)
-                                ns = {'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'}
+                    #         try:
+                    #             tree = ET.fromstring(file_data)
+                    #             ns = {'ss': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
 
-                                # 모든 <a:t> 태그를 찾고, 텍스트 박스의 위치 정보를 기반으로 정렬
-                                text_elements = []
-                                for t_element in tree.findall(".//a:t", ns):
-                                    original_text = t_element.text
-                                    if original_text:
-                                        # 텍스트 박스의 위치 정보 추출
-                                        parent = t_element.getparent()
-                                        if parent is not None:
-                                            x = parent.attrib.get('x', 0)
-                                            y = parent.attrib.get('y', 0)
-                                            text_elements.append((float(y), float(x), original_text.strip()))  # y, x 순서로 저장
+                    #             # 모든 <ss:Row> 태그를 순회하여 각 행의 셀을 읽음
+                    #             for row in tree.findall(".//ss:Row", ns):
+                    #                 for cell in row.findall("ss:Cell", ns):
+                    #                     value_element = cell.find("ss:Data", ns)
+                    #                     if value_element is not None and value_element.text:
+                    #                         all_text.append(value_element.text.strip())
 
-                                # 위치 정보를 기준으로 정렬 (상단에서 하단으로, 좌측에서 우측으로)
-                                text_elements.sort(key=lambda item: (item[0], item[1]))  # y, x 순으로 정렬
+                    #                     # 합병된 셀 처리
+                    #                     if cell.attrib.get('ss:MergeAcross') is not None:
+                    #                         merged_value = value_element.text.strip() if value_element is not None else ""
+                    #                         for _ in range(int(cell.attrib['ss:MergeAcross'])):
+                    #                             all_text.append(merged_value)  # 합병된 셀의 값을 반복 추가
 
-                                # 정렬된 텍스트를 all_text에 추가
-                                for _, _, text in text_elements:
-                                    all_text.append(text)
-
-                                # 수정된 XML 내용을 다시 직렬화
-                                file_data = ET.tostring(tree, encoding='utf-8', standalone=False)
-
-                            except Exception as e:
-                                print(f"Warning: Parsing {item.filename} failed - {e}")
-
-                        
-                            try:
-                                tree = ET.fromstring(file_data)
-                                ns = {'ss': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
-
-                                # 모든 <ss:Row> 태그를 순회하여 각 행의 셀을 읽음
-                                for row in tree.findall(".//ss:Row", ns):
-                                    for cell in row.findall("ss:Cell", ns):
-                                        value_element = cell.find("ss:Data", ns)
-                                        if value_element is not None and value_element.text:
-                                            all_text.append(value_element.text.strip())
-
-                                        # 합병된 셀 처리
-                                        if cell.attrib.get('ss:MergeAcross') is not None:
-                                            merged_value = value_element.text.strip() if value_element is not None else ""
-                                            for _ in range(int(cell.attrib['ss:MergeAcross'])):
-                                                all_text.append(merged_value)  # 합병된 셀의 값을 반복 추가
-
-                            except Exception as e:
-                                print(f"Warning: Parsing {item.filename} failed - {e}")
+                    #         except Exception as e:
+                    #             print(f"Warning: Parsing {item.filename} failed - {e}")
                                 
-                        new_zip.writestr(item, file_data)
+                    #     new_zip.writestr(item, file_data)
 
-                    # merge all text one string
-                    combined_text = ''.join(all_text)
+                    # # merge all text one string
+                    # combined_text = ''.join(all_text)
                     
-                    # 612 debug
-                    # if file_type != "参照ファイル":
-                    #     result_map = gpt_correct_text(combined_text)
-                    #     corrected_map.update(result_map)  # 결과 맵 병합
-                    # else:
-                    #     corrected_map = ""
+                    # # 612 debug
+                    # # if file_type != "参照ファイル":
+                    # #     result_map = gpt_correct_text(combined_text)
+                    # #     corrected_map.update(result_map)  # 결과 맵 병합
+                    # # else:
+                    # #     corrected_map = ""
 
 
-                    # 기존 zip 마무리
-                    in_memory_zip.close()
-                    # 새 zip 마무리
-                    new_zip.close()
+                    # # 기존 zip 마무리
+                    # in_memory_zip.close()
+                    # # 새 zip 마무리
+                    # new_zip.close()
 
-                    # 🔹 7️⃣ 수정된 엑셀을 Base64로 인코딩
-                    output_buffer.seek(0)
+                    # # 🔹 7️⃣ 수정된 엑셀을 Base64로 인코딩
+                    # output_buffer.seek(0)
+                    #--------------excel end------------------------------------------
                     # excel_base64 = base64.b64encode(output_buffer.getvalue()).decode('utf-8')
                     excel_base64 = base64.b64encode(file_bytes).decode('utf-8')
 
                     return jsonify({
                         "success": True,
-                        "original_text": combined_text, #corrected_map,
+                        "original_text": "",# combined_text,
                         "excel_bytes": excel_base64,
-                        "combined_text":combined_text,
+                        "combined_text": "",# combined_text,
                         "file_name": file.filename
                     })
 
@@ -3163,7 +3165,8 @@ replace_rules = {
     'フリー・キャッシュフロー': 'フリーキャッシュフロー(税引後営業利益に減価償却費を加え、設備投資額と運転資本の増加を差し引いたもの )', #726
 
     'ボラティリティ': 'ボラティリティ（価格変動性）', #829
-    'ファンダメンタルズ': 'ファンダメンタルズ（賃料や空室率、需給関係などの基礎的条件）', #829
+    'ファンダメンタルズ': 'ファンダメンタルズ（経済の基礎的条件）', #829
+
     
 }
 
@@ -4129,8 +4132,8 @@ def upload_to_azure_storage(pdf_bytes, file_name, fund_type):
 
 
 def save_to_cosmos(file_name, response_data, link_url, fund_type, upload_type='', comment_type='',icon=''):
-    """응답 데이터를 Cosmos DB에 저장"""
-    # Cosmos DB 연결
+    """응답 데이터를 Cosmos DB Save"""
+    # Cosmos DB 连接
     container = public_container if fund_type == 'public' else private_container
 
     # match = re.search(r'(\d{0,}(?:-\d+)?_M\d{4})', file_name)
@@ -4199,6 +4202,7 @@ def write_upload_save():
         data = request.json
         pdf_base64 = data.get("pdf_bytes", "")
         excel_base64 = data.get("excel_bytes", "")
+        docx_base64 = data.get("docx_bytes", "")
         resutlmap = data.get("original_text", "")
         fund_type = data.get("fund_type", "public")  # 기본값은 'public'
         file_name_decoding = data.get("file_name", "")
@@ -4207,28 +4211,24 @@ def write_upload_save():
         icon = data.get("icon", "")
         change_flag = data.get("change_flag", "")
 
-        # URL 디코딩
+        # URL Decoding
         file_name = urllib.parse.unquote(file_name_decoding)
 
-
-        #-debug
         #---------EXCEL-----------
         if excel_base64:
             try:
-                excel_bytes_decoding = base64.b64decode(excel_base64)
-                modified_bytes = correct_text_box_in_excel(excel_bytes_decoding,resutlmap)
-
+                excel_bytes = base64.b64decode(excel_base64)
                 response_data = {
                     "success": True,
                     "corrections": []
                 }
 
-                # Blob에 업로드
-                link_url = upload_to_azure_storage(excel_bytes_decoding, file_name, fund_type)
+                # Blob Upload
+                link_url = upload_to_azure_storage(excel_bytes, file_name, fund_type)
                 if not link_url:
                     return jsonify({"success": False, "error": "Blob upload failed"}), 500
 
-                # Cosmos DB에 저장
+                # Cosmos DB Save
                 save_to_cosmos(file_name, response_data, link_url, fund_type, upload_type, comment_type,icon)
                 if upload_type != "参照ファイル" and change_flag == "change":
                     container = get_db_connection(FILE_MONITOR_ITEM)
@@ -4240,13 +4240,7 @@ def write_upload_save():
             except Exception as e:
                 return jsonify({"success": False, "error": str(e)}), 500
 
-            except Exception as e:
-                return jsonify({
-                    "success": False,
-                    "error": str(e)
-                })
-
-            # 3) 수정된 XLSX를 반환(다운로드)
+            # 3) return xlsx
             return jsonify({
                 "success": True,
                 "corrections": [],
@@ -4261,21 +4255,49 @@ def write_upload_save():
                     "corrections": []
                 }
 
-                # Blob에 업로드
+                # Blob Upload
                 link_url = upload_to_azure_storage(pdf_bytes, file_name, fund_type)
                 if not link_url:
                     return jsonify({"success": False, "error": "Blob upload failed"}), 500
 
-                # Cosmos DB에 저장
+                # Cosmos DB Save
                 save_to_cosmos(file_name, response_data, link_url, fund_type, upload_type, comment_type,icon)
 
             except ValueError as e:
                 return jsonify({"success": False, "error": str(e)}), 400
             except Exception as e:
                 return jsonify({"success": False, "error": str(e)}), 500
+            
+        # ---------DOCX -----------
+        if docx_base64:
+            try:
+                docx_bytes = base64.b64decode(docx_base64)
 
+                response_data = {
+                    "corrections": []
+                }
 
-        # 수정된 텍스트와 코멘트를 JSON으로 반환
+                # Blob Upload
+                link_url = upload_to_azure_storage(docx_bytes, file_name, fund_type)
+                if not link_url:
+                    return jsonify({"success": False, "error": "Blob upload failed"}), 500
+
+                # Cosmos DB Save
+                save_to_cosmos(file_name, response_data, link_url, fund_type, upload_type, comment_type,icon)
+
+            except ValueError as e:
+                return jsonify({"success": False, "error": str(e)}), 400
+            except Exception as e:
+                return jsonify({"success": False, "error": str(e)}), 500
+            
+            # return JSON
+            return jsonify({
+                "success": True,
+                "corrections": [],
+                "code": 200,
+            })
+
+        # return JSON
         return jsonify({
             "success": True,
             "corrections": [],
@@ -4796,7 +4818,7 @@ def excel_upload():
     # 2) 수정
     modified_bytes = correct_text_box_in_excel(original_bytes, corrected_map)
 
-    # 3) 수정된 XLSX를 반환(다운로드)
+    # 3) return xlsx
     return send_file(
         io.BytesIO(modified_bytes),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -4852,7 +4874,7 @@ def prompt_upload():
         answer = response['choices'][0]['message']['content'].strip()
         re_answer = remove_code_blocks(answer)
 
-        # 수정된 텍스트와 코멘트를 JSON으로 반환
+        # return JSON
         return jsonify({
             "success": True,
             "original_text": prompt,  # 입력된 원본 텍스트
@@ -4877,7 +4899,7 @@ def auto_save_cosmos():
         container_name = data['containerName']
         file_name_decoding = data['fileName']
 
-        # URL 디코딩
+        # URL Decoding
         file_name = urllib.parse.unquote(file_name_decoding)
 
         # Cosmos DB 컨테이너 클라이언트 가져오기)
@@ -4952,7 +4974,7 @@ def auto_save_blob():
 #----auto app save log 
 @app.route('/api/auto_save_log_cosmos', methods=['POST','PUT'])
 def auto_save_log_cosmos():
-    """로그를 Cosmos DB에 저장하는 API"""
+    """로그를 Cosmos DB Save하는 API"""
     try:
         # Cosmos DB 컨테이너 클라이언트 가져오기
         container = get_db_connection(APPLOG_CONTAINER_NAME)
@@ -4961,7 +4983,7 @@ def auto_save_log_cosmos():
         log_data = request.json
         log_by_date = log_data.get("logs", {})
 
-        # ✅ Cosmos DB에 저장
+        # ✅ Cosmos DB Save
         for log_id, logs in log_by_date.items():
             existing_logs = list(container.query_items(
                 query="SELECT * FROM c WHERE c.id = @log_id",
@@ -5027,7 +5049,7 @@ def integeration_ruru_cosmos():
         query = f"SELECT * FROM c WHERE c.Fcode = '{data['Fcode']}' AND c.Base_Month = '{data['Base_Month']}' AND c.fundType = '{data['fundType']}'"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
 
-        # Cosmos DB에 저장할 아이템 생성
+        # Cosmos DB Save할 아이템 생성
         common_item = {
             "id": id,
             "No": No,
@@ -5084,7 +5106,7 @@ def integeration_ruru_cosmos():
 
 @app.route('/api/integeration_ruru_cosmos', methods=['GET'])
 def get_integeration_ruru_cosmos():
-    # Cosmos DB 연결
+    # Cosmos DB 连接
     container = get_db_connection(INTEGERATION_RURU_CONTAINER_NAME)
 
     # 요청 파라미터 읽기
@@ -5183,7 +5205,7 @@ def get_open_data():
     f_code = data.get("f_code", "")
     flag = data.get("flag", "open")
     base_month = data.get("base_month", "M2411")
-    query = f"SELECT * FROM c WHERE c.flag = '{flag}' AND c.base_month = '{base_month}' and c.Fcode = '{f_code}'"
+    query = f"SELECT * FROM c WHERE c.flag = '{flag}' AND c.Base_Month = '{base_month}' and c.Fcode = '{f_code}'"
     items = list(integeration_container.query_items(query=query, enable_cross_partition_query=True))
 
     if items:
@@ -5452,12 +5474,12 @@ def check_file_statue():
         if file_data:
             file_info = file_data[0]
             if file_info.get("flag") == "success":
-                pdf_name = re.sub(r"\.(xlsx|xlsm|xls)", ".pdf", file_name)
+                pdf_name = re.sub(r"\.(xlsx|xlsm|xls|doc|docx)", ".pdf", file_name)
                 result = {
                     "corrections": file_info.get("corrections", [])
                 }
                 is_url = file_info.get("link", "")
-                link_url = re.sub(r"\.(xlsx|xlsm|xls)", ".pdf", is_url)
+                link_url = re.sub(r"\.(xlsx|xlsm|xls|doc|docx)", ".pdf", is_url)
                 save_to_cosmos(pdf_name, result, link_url, fund_type, comment_type=comment_type, upload_type=upload_type)
                 return jsonify({"success": True}), 200
         return jsonify({"success": False}), 200
@@ -5584,7 +5606,7 @@ def integrate_enhance():
 
         file_name_decoding = data.get("file_name", "")
 
-        # URL 디코딩
+        # URL Decoding
         file_name = urllib.parse.unquote(file_name_decoding)
 
         if condition:
@@ -5985,7 +6007,7 @@ def ruru_ask_gpt():
             except Exception as e:
                 return jsonify({"success": False, "error": str(e)}), 500
             
-        # 수정된 텍스트와 코멘트를 JSON으로 반환
+        # return JSON
         return jsonify({
             "success": True,
             "corrections": corrections,  # 틀린 부분과 코멘트
@@ -6232,7 +6254,7 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber, re_list, rule_list,
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 500
 
-    # 수정된 텍스트와 코멘트를 JSON으로 반환
+    # return JSON
     return jsonify({
         "success": True,
         "corrections": combine_corrections,  # 틀린 부분과 코멘트
@@ -6271,7 +6293,7 @@ async def opt_common_wording(file_name,fund_type,input,prompt_result,excel_base6
             excel_bytes_decoding = base64.b64decode(excel_base64)
             modified_bytes = correct_text_box_in_excel(excel_bytes_decoding,resutlmap)
 
-            # 3) 수정된 XLSX를 반환(다운로드)
+            # 3) return xlsx
             return send_file(
                 io.BytesIO(modified_bytes),
                 mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -6296,7 +6318,7 @@ async def opt_common_wording(file_name,fund_type,input,prompt_result,excel_base6
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 500
 
-    # 수정된 텍스트와 코멘트를 JSON으로 반환
+    # return JSON
     return jsonify({
         "success": True,
         "corrections": combine_corrections,  # 틀린 부분과 코멘트
@@ -6331,7 +6353,7 @@ def opt_typo():
         icon = data.get("icon", "")
         pageNumber = data.get('pageNumber',0)
 
-        # URL 디코딩
+        # URL Decoding
         file_name = urllib.parse.unquote(file_name_decoding)
 
         if not input:
@@ -6592,7 +6614,7 @@ def opt_kanji():
         icon = data.get("icon", "")
         pageNumber = data.get('pageNumber',0)
 
-        # URL 디코딩
+        # URL Decoding
         file_name = urllib.parse.unquote(file_name_decoding)
 
         if not input:
@@ -7011,7 +7033,7 @@ def opt_wording():
         upload_type = data.get("upload_type", "")
         pageNumber = data.get('pageNumber',0)
         
-        # URL 디코딩
+        # URL Decoding
         file_name = urllib.parse.unquote(file_name_decoding)
 
         if not input:
@@ -7124,6 +7146,34 @@ def get_words(converted_data, fund_type):
         # 827 fix
         if afterChange == "。" and beforeChange == "":
             continue
+        # 903 fix
+        if afterChange == "東京エレクトロンは社会効率化、":
+            continue
+        ignore_list = [
+        "○。",
+        "〇。",
+        "3。",
+        "銘柄。",
+        "\n◆設定・運用は\n追加型投信／内外／株式\n6/10\n1\n2。",
+        "員\n◆設定・運用は\n追加型投信／内外／株式\n6/10\n1\n2。",
+        "○\nマンスリーレポート。",
+        "○\n9 ARGENX SE-ADR\nアルジェンX。",
+        "10 STRYKER CORPORATION\nストライカー。",
+        "○\n1 ELI LILLY & CO.\nイーライリリー。",
+        "○\n4 DANAHER CORPORATION\nダナハー。",
+        "TICALS INC\nアルナイラム・ファーマシューティカルズ。",
+        "BBOTT LABORATORIES\nアボットラボラトリーズ。",
+        "EALTH GROUP INC\nユナイテッドヘルス・グループ。",
+        "NSON & JOHNSON\nジョンソン・エンド・ジョンソン。",
+        "CIENTIFIC CORP\nボストン・サイエンティフィック。"
+        ]
+
+        if afterChange in ignore_list:
+            continue
+    
+        #---0901,fix the error disable
+        if "不自然な空白" in data["reason_type"] and fund_type == "public":
+            continue
         
         result_data.append(data)
     return result_data
@@ -7139,7 +7189,7 @@ def save_corrections():
         file_name_decoding = data.get('file_name','')
         icon = data.get('icon','')
 
-        # URL 디코딩
+        # URL Decoding
         file_name = urllib.parse.unquote(file_name_decoding)
 
         # match = re.search(r'(\d{0,}(?:-\d+)?_M\d{4})', file_name)
@@ -7154,7 +7204,7 @@ def save_corrections():
         
         # 컨테이너 이름 결정
         container_name = f"{fund_type}_Fund"
-        # 2. Cosmos DB 연결
+        # 2. Cosmos DB 连接
         container = get_db_connection(container_name)
 
         # 기존 항목 존재 여부 확인
