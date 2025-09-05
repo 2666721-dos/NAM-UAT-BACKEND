@@ -2706,6 +2706,10 @@ def check_upload():
                     })
 
                 elif file.filename.endswith(('.doc', '.docx')):
+                    # Just Only DOCX format
+                    # docx = Document(io.BytesIO(file_bytes))
+                    # text = "\n".join([para.text for para in docx.paragraphs])
+
                     file_base64 = base64.b64encode(file_bytes).decode('utf-8')
 
                     return jsonify({
@@ -3848,7 +3852,31 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
                 "page": pageNumber,
                 "reason_type": "句点の追加",
             })
-#---------------------
+#--------------------add--0905--
+            # 主語欠落を検知する正規表現 pattern
+            # 「〜と示唆した」 の直前に「が|は」などの主語 
+            pattern = r"([^、。]+?と示唆した)"
+
+            matches = re.finditer(pattern, input_text)
+
+            for match in matches:
+                original_text = match.group(0)
+                # 修正案: 「同社が〜ことを示唆した」
+                corrected_text_re = f"同社が{match.group(1)}ことを示唆した"
+                reason_type = "主語の欠落"
+
+                comment = f"{reason_type}: {original_text} → {corrected_text_re}"
+
+                corrections.append({
+                    "page": pageNumber,
+                    "original_text": original_text,
+                    "comment": comment,
+                    "reason_type": reason_type,
+                    "check_point": reason_type,
+                    "locations": [],   # 必要なら位置情報を追加
+                    "intgr": False,
+                })
+#--------------------
     return corrections
 
 def extract_text(input_text, original_text):
@@ -6956,6 +6984,18 @@ def loop_in_ruru(input):
                 }
             ]
         }
+        # ,{
+        #     "category": "主語の欠落チェック",
+        #     "rule_id": "4.0",
+        #     "description": "日本語の文で、誰が・何がを示す主語が省略されると文が不自然になり、読み手に誤解を与える可能性があります。特に金融文書やレポートでは、主語を明確にすることで責任主体や動作主体が正確に伝わります。主語が欠けている場合は、文脈に基づき「同社」「市場」「決算発表」などを補う形で修正してください。",
+        #     "output_format": "'original': 'Incorrect text', 'correct': 'Corrected text', 'reason': '主語が欠落しており、誰が示唆したのかが不明確で不自然です。金融文書では動作の主体を明確にする必要があります。'",
+        #     "Examples": [
+        #         {
+        #             "Input": "オランダ株は大手半導体製造装置メーカーの2025年4－6月期受注額は市場予想を上回ったものの、2026年の成長が期待できないと示唆したことなどを背景に下落しました。",
+        #             "Output": "'original': '2026年の成長が期待できないと示唆した', 'correct': '同社が2026年の成長が期待できないことを示唆した', 'reason': '主語が欠落しており、「誰が示唆したのか」が分からないため不自然です。主語を補うことで文意が明確になります。'"
+        #         }
+        #     ]
+        # }
     ]
 
     for ruru_split in ruru_all:
