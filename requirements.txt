@@ -23,6 +23,4 @@ hypercorn
 asgiref
 pdfplumber
 jaconv
-
 regex
-python-docx
