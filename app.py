@@ -48,7 +48,6 @@ from copy import copy
 from difflib import SequenceMatcher
 import jaconv
 import regex as regcheck
-from docx import Document
 
 # 日志格式定义 (时间格式，日志级别，消息)
 log_format = '%(asctime)sZ: [%(levelname)s] %(message)s'
@@ -2707,10 +2706,6 @@ def check_upload():
                     })
 
                 elif file.filename.endswith(('.doc', '.docx')):
-                    # Just Only DOCX format
-                    # docx = Document(io.BytesIO(file_bytes))
-                    # text = "\n".join([para.text for para in docx.paragraphs])
-
                     file_base64 = base64.b64encode(file_bytes).decode('utf-8')
 
                     return jsonify({
