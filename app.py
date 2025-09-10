@@ -4307,6 +4307,10 @@ def write_upload_save():
 
                 # Cosmos DB Save
                 save_to_cosmos(file_name, response_data, link_url, fund_type, upload_type, comment_type,icon)
+                if upload_type != "参照ファイル" and change_flag == "change":
+                    container = get_db_connection(FILE_MONITOR_ITEM)
+                    container.upsert_item({"id": str(uuid.uuid4()), "file_name": file_name, "flag": "wait",
+                                            "link": link_url, "fund_type": fund_type})
 
             except ValueError as e:
                 return jsonify({"success": False, "error": str(e)}), 400
@@ -5168,8 +5172,9 @@ def get_integeration_ruru_cosmos():
 # common ruru add logic
 def common_ruru_text(text):
     corrections = []
+    seen = set()
 
-    # ① ファンド＋ベンチマーク両方 → 超過収益 계산
+    # ① ファンド＋ベンチマーク両方 → 超過収益 
     pattern_excess = (
         r"基準価額の騰落率は([+-]?\d+(\.\d+)?)％、"
         r"ベンチマークの騰落率は([+-]?\d+(\.\d+)?)％"
@@ -5180,47 +5185,33 @@ def common_ruru_text(text):
         fund_return = float(match.group(1))
         benchmark_return = float(match.group(3))
 
-        # 차액 계산 (소수점 둘째자리 반올림)
+        # round 2
         calculated_excess = round(fund_return - benchmark_return, 2)
 
-        corrections.append({
+        result = {
             "騰落率": fund_return,
             "ベンチマークの騰落率": benchmark_return,
             "超過収益（ポイント差）": calculated_excess,
             "reason": "基準価額とベンチマークの差を計算しました"
-        })
+        }
+
+        key = str(result)  # dict set duipli
+        if key not in seen:
+            seen.add(key)
+            corrections.append(result)
+
 
     else:
         # ② other case
         pattern_other = (
-            r"「([^」]+)」"                  # 「」
-            r"|([^\n。]+?％)"                # % include
-            r"|((通貨セレクトコース).*?(上昇|下落))"  # 通貨セレクト
-            r"|([^。]*?％[^。]*)|([^。]*?ポイント[^。]*)" # ポイント include
+            r"[^、]+?％"
         )
         matches = re.findall(pattern_other, text)
 
         for m in matches:
-            extracted = None
-            if m[0]:
-                extracted = m[0]
-            elif m[1]:
-                extracted = m[1]
-            elif m[2]:
-                extracted = m[2]
-            elif m[4]:
-                extracted = m[4]
-
-            if extracted:
-                # ②-1 複数コース分割 split
-                course_pattern = r"([A-ZＡ-Ｚぁ-んァ-ン一-龥]+コース)が([+-]?\d+(\.\d+)?％)"
-                sub_matches = re.findall(course_pattern, extracted)
-                if sub_matches:
-                    for sm in sub_matches:
-                        course_text = f"{sm[0]}が{sm[1]}"
-                        corrections.append({"extract": course_text})
-                else:
-                    corrections.append({"extract": extracted})
+            if m not in seen:
+                seen.add(m)
+                corrections.append({"extract": m})
 
     return corrections
 
@@ -5243,12 +5234,12 @@ def common_ruru():
         corrections = []
         if isinstance(input_list, list):
             for idx, t in enumerate(input_list, start=1):
-                part_result = common_ruru_text(t)  # ← 리스트나 dict 형태 반환한다고 가정
+                part_result = common_ruru_text(t) 
                 for pr in part_result:
                     corrections.append({
                         "page": pageNumber,
                         "original_text": t,
-                        "comment": f"{t} → {pr.get('extract', pr.get('超過収益（ポイント差）', ''))}",
+                        "comment": f"{pr.get("extract", t)} → ",
                         "reason_type": pr.get("reason", "共通ルール"),
                         "check_point": pr.get("extract", t),
                         "locations": [], 
@@ -5619,12 +5610,12 @@ def check_file_statue():
         if file_data:
             file_info = file_data[0]
             if file_info.get("flag") == "success":
-                pdf_name = re.sub(r"\.(xlsx|xlsm|xls|doc|docx)", ".pdf", file_name)
+                pdf_name = re.sub(r"\.(xlsx|xlsm|xls|docx|doc)", ".pdf", file_name)
                 result = {
                     "corrections": file_info.get("corrections", [])
                 }
                 is_url = file_info.get("link", "")
-                link_url = re.sub(r"\.(xlsx|xlsm|xls|doc|docx)", ".pdf", is_url)
+                link_url = re.sub(r"\.(xlsx|xlsm|xls|docx|doc)", ".pdf", is_url)
                 save_to_cosmos(pdf_name, result, link_url, fund_type, comment_type=comment_type, upload_type=upload_type)
                 return jsonify({"success": True}), 200
         return jsonify({"success": False}), 200
