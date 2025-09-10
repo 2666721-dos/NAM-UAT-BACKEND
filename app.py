@@ -5240,7 +5240,7 @@ def common_ruru():
                         "page": pageNumber,
                         "original_text": t,
                         "comment": f"{pr.get("extract", t)} → ",
-                        "reason_type": pr.get("reason", "共通ルール"),
+                        "reason_type": pr.get("reason", "整合性"),
                         "check_point": pr.get("extract", t),
                         "locations": [], 
                         "intgr": True
@@ -5252,7 +5252,7 @@ def common_ruru():
                     "page": pageNumber,
                     "original_text": input_list,
                     "comment": f"{input_list} → {pr.get('extract', pr.get('超過収益（ポイント差）', ''))}",
-                    "reason_type": pr.get("reason", "共通ルール"),
+                    "reason_type": pr.get("reason", "整合性"),
                     "check_point": pr.get("extract", input_list),
                     "locations": [],
                     "intgr": True
