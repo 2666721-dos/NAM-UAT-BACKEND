@@ -5243,7 +5243,7 @@ def common_ruru():
                         "reason_type": pr.get("reason", "共通ルール"),
                         "check_point": pr.get("extract", t),
                         "locations": [], 
-                        "intgr": False
+                        "intgr": True
                     })
         else:
             part_result = common_ruru_text(input_list)
@@ -5255,7 +5255,7 @@ def common_ruru():
                     "reason_type": pr.get("reason", "共通ルール"),
                     "check_point": pr.get("extract", input_list),
                     "locations": [],
-                    "intgr": False
+                    "intgr": True
                 })
         
         try:
