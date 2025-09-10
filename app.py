@@ -5235,40 +5235,7 @@ def common_ruru():
         data = request.json
         input_list = data.get("input", "")
         pdf_base64 = data.get("pdf_bytes", "")
-        fund_type = data.get("fund_type", "public")
-        file_name_decoding = data.get("file_name", "")
-        upload_type = data.get("upload_type", "")
-        comment_type = data.get("comment_type", "")
-        icon = data.get("icon", "")
         pageNumber = data.get('pageNumber',0)
-
-        # URL Decoding
-        file_name = urllib.parse.unquote(file_name_decoding)
-
-        # get container name
-        container_name = f"{fund_type}_Fund"
-
-        container = get_db_connection(container_name)
-
-        query = "SELECT * FROM c WHERE c.fileName = @file_name"
-        parameters = [{"name": "@file_name", "value": file_name}]
-        items = list(container.query_items(
-            query=query,
-            parameters=parameters,
-            enable_cross_partition_query=True
-        ))
-
-        if not items:
-            return jsonify({"success": False, "error": f"ファイル {file_name} がDBに存在しません"}), 404
-
-        comment_type = items[0].get("comment_type", "")
-
-        # comment_type confirm
-        if comment_type != "共通コメントファイル":
-            return jsonify({
-                "success": False,
-                "error": f"ファイルタイプが『{comment_type}』のため処理をスキップします"
-            }), 200
 
         if not input_list:
             return jsonify({"success": False, "error": "No input provided"}), 400
