@@ -5165,6 +5165,160 @@ def get_integeration_ruru_cosmos():
     }
     return jsonify(response), 200
 
+# common ruru add logic
+def common_ruru_text(text):
+    corrections = []
+
+    # ① ファンド＋ベンチマーク両方 → 超過収益 계산
+    pattern_excess = (
+        r"基準価額の騰落率は([+-]?\d+(\.\d+)?)％、"
+        r"ベンチマークの騰落率は([+-]?\d+(\.\d+)?)％"
+    )
+    match = re.search(pattern_excess, text)
+
+    if match:
+        fund_return = float(match.group(1))
+        benchmark_return = float(match.group(3))
+
+        # 차액 계산 (소수점 둘째자리 반올림)
+        calculated_excess = round(fund_return - benchmark_return, 2)
+
+        corrections.append({
+            "騰落率": fund_return,
+            "ベンチマークの騰落率": benchmark_return,
+            "超過収益（ポイント差）": calculated_excess,
+            "reason": "基準価額とベンチマークの差を計算しました"
+        })
+
+    else:
+        # ② other case
+        pattern_other = (
+            r"「([^」]+)」"                  # 「」
+            r"|([^\n。]+?％)"                # % include
+            r"|((通貨セレクトコース).*?(上昇|下落))"  # 通貨セレクト
+            r"|([^。]*?％[^。]*)|([^。]*?ポイント[^。]*)" # ポイント include
+        )
+        matches = re.findall(pattern_other, text)
+
+        for m in matches:
+            extracted = None
+            if m[0]:
+                extracted = m[0]
+            elif m[1]:
+                extracted = m[1]
+            elif m[2]:
+                extracted = m[2]
+            elif m[4]:
+                extracted = m[4]
+
+            if extracted:
+                # ②-1 複数コース分割 split
+                course_pattern = r"([A-ZＡ-Ｚぁ-んァ-ン一-龥]+コース)が([+-]?\d+(\.\d+)?％)"
+                sub_matches = re.findall(course_pattern, extracted)
+                if sub_matches:
+                    for sm in sub_matches:
+                        course_text = f"{sm[0]}が{sm[1]}"
+                        corrections.append({"extract": course_text})
+                else:
+                    corrections.append({"extract": extracted})
+
+    return corrections
+
+# --- common ruru api
+@app.route('/api/common_ruru', methods=['POST'])
+def common_ruru():
+    try:
+        token = token_cache.get_token()
+        openai.api_key = token
+        print("✅ Token Update SUCCESS")
+        
+        data = request.json
+        input_list = data.get("input", "")
+        pdf_base64 = data.get("pdf_bytes", "")
+        fund_type = data.get("fund_type", "public")
+        file_name_decoding = data.get("file_name", "")
+        upload_type = data.get("upload_type", "")
+        comment_type = data.get("comment_type", "")
+        icon = data.get("icon", "")
+        pageNumber = data.get('pageNumber',0)
+
+        # URL Decoding
+        file_name = urllib.parse.unquote(file_name_decoding)
+
+        # get container name
+        container_name = f"{fund_type}_Fund"
+
+        container = get_db_connection(container_name)
+
+        query = "SELECT * FROM c WHERE c.fileName = @file_name"
+        parameters = [{"name": "@file_name", "value": file_name}]
+        items = list(container.query_items(
+            query=query,
+            parameters=parameters,
+            enable_cross_partition_query=True
+        ))
+
+        if not items:
+            return jsonify({"success": False, "error": f"ファイル {file_name} がDBに存在しません"}), 404
+
+        comment_type = items[0].get("comment_type", "")
+
+        # comment_type confirm
+        if comment_type != "共通コメントファイル":
+            return jsonify({
+                "success": False,
+                "error": f"ファイルタイプが『{comment_type}』のため処理をスキップします"
+            }), 200
+
+        if not input_list:
+            return jsonify({"success": False, "error": "No input provided"}), 400
+        
+        corrections = []
+        if isinstance(input_list, list):
+            for idx, t in enumerate(input_list, start=1):
+                part_result = common_ruru_text(t)  # ← 리스트나 dict 형태 반환한다고 가정
+                for pr in part_result:
+                    corrections.append({
+                        "page": pageNumber,
+                        "original_text": t,
+                        "comment": f"{t} → {pr.get('extract', pr.get('超過収益（ポイント差）', ''))}",
+                        "reason_type": pr.get("reason", "共通ルール"),
+                        "check_point": pr.get("extract", t),
+                        "locations": [], 
+                        "intgr": False
+                    })
+        else:
+            part_result = common_ruru_text(input_list)
+            for pr in part_result:
+                corrections.append({
+                    "page": pageNumber,
+                    "original_text": input_list,
+                    "comment": f"{input_list} → {pr.get('extract', pr.get('超過収益（ポイント差）', ''))}",
+                    "reason_type": pr.get("reason", "共通ルール"),
+                    "check_point": pr.get("extract", input_list),
+                    "locations": [],
+                    "intgr": False
+                })
+        
+        try:
+            pdf_bytes = base64.b64decode(pdf_base64)
+            find_locations_in_pdf(pdf_bytes, corrections)
+
+            return jsonify({
+                "success": True,
+                "corrections": corrections,
+            })
+
+        except ValueError as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+        
+        
+    except Exception as e:
+        # exception return JSON 
+        return jsonify({"success": False, "error": str(e)}), 500
+
 # --- ruru test api
 
 @app.route('/api/ruru_search_db', methods=['POST'])
@@ -5191,6 +5345,7 @@ def ruru_search_db():
             return jsonify({"success": True, "data": results}), 200
         else:
             return jsonify({"success": False, "message": "No matching data found in DB."}), 200
+            #Todo need add the common ruru  D:\CommentCheck\702\整合性共通ルール.xlsx
 
     except Exception as e:
         logging.error(f"❌ Error occurred while searching DB: {e}")
