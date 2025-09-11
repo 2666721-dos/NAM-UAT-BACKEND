@@ -5202,16 +5202,51 @@ def common_ruru_text(text):
 
 
     else:
-        # ② other case
-        pattern_other = (
-            r"[^、]+?％"
-        )
-        matches = re.findall(pattern_other, text)
+        # pass
+        # ② 個別パターンチェック
+        patterns = {
+            # "fund_only": r"月間の基準価額の騰落率は[+-]?\d+(\.\d+)?％",
+            "benchmark_only": r"ベンチマークの騰落率は[+-]?\d+(\.\d+)?％",
+            "course_multi": r"([Ａ-ＺA-Zぁ-んァ-ン一-龥]+コース)が[+-]?\d+(\.\d+)?％",
+            "hedge": r"(為替ヘッジあり|為替ヘッジなし)は[+-]?\d+(\.\d+)?％",
+            "currency_type": r"(円投資型|米ドル投資型)の月間騰落率は[+-]?\d+(\.\d+)?％",
+            # "global_type": r"【[^】]+】[+-]?\d+(\.\d+)?％",
+            # "point_value": r"[+-]?\d+(\.\d+)?ポイント",
+            "select_course": r"通貨セレクトコース.*?(上昇|下落)",
+            "fund_updown": r"基準価額（分配金再投資）は.*?(上昇|下落)"
+        }
 
-        for m in matches:
-            if m not in seen:
-                seen.add(m)
-                corrections.append({"extract": m})
+        # ファンド型: 当ファンド + ベンチマーク
+        pattern_fund = r"当ファンドの月間騰落率.*?ベンチマーク[^。]*?ポイント[^。]"
+        # 市況型: 株式市場 + TOPIX
+        pattern_market = r"TOPIX（東証株価指数）[^。]*"
+
+        # --- ファンド型 처리 ---
+        fund_sentences = re.findall(pattern_fund, text)
+        for sentence in fund_sentences:
+            for m in re.finditer(r"[^、。]+?(％|ポイント)", sentence):
+                extracted = m.group(0).strip()
+                if extracted not in seen:
+                    seen.add(extracted)
+                    corrections.append({"extract": extracted})
+
+        # --- 市況型 처리 ---
+        market_sentences = re.findall(pattern_market, text)
+        for sentence in market_sentences:
+            for m in re.finditer(r"[^、。]+?(％|ポイント)", sentence):
+                extracted = m.group(0).strip()
+                if extracted not in seen:
+                    seen.add(extracted)
+                    corrections.append({"extract": extracted})
+
+
+        # その他のパターン一括抽出
+        for name, pat in patterns.items():
+            for m in re.finditer(pat, text):
+                extracted_other = m.group(0)
+                if extracted_other not in seen:
+                    seen.add(extracted_other)
+                    corrections.append({"extract": extracted_other})
 
     return corrections
 
@@ -5238,7 +5273,7 @@ def common_ruru():
                 for pr in part_result:
                     corrections.append({
                         "page": pageNumber,
-                        "original_text": t,
+                        "original_text": pr.get("extract", t),
                         "comment": f"{pr.get("extract", t)} → ",
                         "reason_type": pr.get("reason", "整合性"),
                         "check_point": pr.get("extract", t),
