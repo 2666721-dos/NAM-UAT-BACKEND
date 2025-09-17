@@ -69,11 +69,11 @@ app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)  # 安全密钥
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)  # 会话有效期30分钟
 
-# 🔹 Flask 세션 설정 (세션을 파일 시스템에 저장하여 지속성 유지)
-app.config["SESSION_TYPE"] = "filesystem"  # 서버가 재시작되어도 세션 유지
-app.config["SESSION_COOKIE_SECURE"] = False  # 개발 환경에서는 False, 운영 환경에서는 True
-app.config["SESSION_COOKIE_HTTPONLY"] = True  # JavaScript에서 접근 불가능 (XSS 방지)
-app.config["SESSION_COOKIE_SAMESITE"] = "None"  # CSRF save (CORS)
+# 🔹 Flask sesstion settings (save to file system)
+app.config["SESSION_TYPE"] = "filesystem"
+app.config["SESSION_COOKIE_SECURE"] = False 
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
 app.config["SESSION_COOKIE_NAME"] = "secure_session"  # session cookie name
 
 
@@ -82,7 +82,7 @@ Session(app)
 # CORS(app, resources={r"/api/*": {"origins": "*"}})
 CORS(app, supports_credentials=True, resources={
     r"*": {
-        "origins": "*"  # 실제 프론트엔드 도메인으로 변경
+        "origins": "*"  # need change to real domain
     }
 })
 
@@ -103,45 +103,41 @@ users = {
 #-----------------------------------------------------------------
 
 
-# AzureTokenCache 클래스 정의
+# AzureTokenCache class define
 class AzureTokenCache:
     def __init__(self):
-        self._lock = threading.Lock() # 스레드 안전을 위한 락
+        self._lock = threading.Lock() # thredd safe lock
         self.credential = DefaultAzureCredential()
         self.scope = "https://cognitiveservices.azure.com/.default"
         
         self.cached_token = None
-        self.token_expires = 0  # 토큰 만료 시간 (Unix 타임스탬프)
-        self.last_refreshed = 0 # 마지막 체크 시간 (Unix 타임스탬프)
+        self.token_expires = 0
+        self.last_refreshed = 0
         
-        # 초기 토큰 획득
         self._refresh_token()
-        
-        # 백그라운드 갱신 쓰레드 시작
         self._start_refresh_thread()
 
     def get_token(self):
         with self._lock:
-            # 토큰이 10분 이내로 만료되면 갱신
-            if time.time() >= self.token_expires - 600:  # 10분 전에 갱신
+            # token 10 minute end before
+            if time.time() >= self.token_expires - 600:  # 10 mintute befor end
                 self._refresh_token()
             return self.cached_token
 
     def _acquire_new_token(self):
-        """새 토큰 획득"""
+        """Get new token"""
         return self.credential.get_token(self.scope)
 
     def _refresh_token(self):
-        """토큰 갱신"""
+        """update token"""
         new_token = self._acquire_new_token()
         with self._lock:
             self.cached_token = new_token.token
-            self.token_expires = new_token.expires_on  # 실제 토큰 만료 시간 사용
+            self.token_expires = new_token.expires_on
             self.last_refreshed = time.time()
         print(f"🔄Updated Token (END of at:,haha, {self._format_time(self.token_expires)})")
 
     def _start_refresh_thread(self):
-        """백그라운드에서 1분마다 토큰을 확인하고 만료되면 자동 갱신하는 쓰레드 실행"""
         thread = threading.Thread(target=self._refresh_loop, daemon=True)
         thread.start()
 
@@ -152,7 +148,6 @@ class AzureTokenCache:
                 self._refresh_token()
 
     def _format_time(self, timestamp):
-        """디버깅용 시간 포맷팅"""
         local_time = time.localtime(timestamp)
         adjusted_time = time.mktime(local_time) + (8 * 3600)  # 8小时
         return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(adjusted_time))
@@ -260,13 +255,11 @@ def update_proxyuser():
         new_username = data.get('username')
         new_password = data.get('password')
 
-        # 1. 필수 필드 검증
         if not all([new_username, new_password]):
             return jsonify({"error": "Required fields: proxyuserName and Password"}), 400
 
         container = get_db_connection(PROXYINFO_CONTAINER_NAME)
 
-        # 2. 기존 사용자 조회 (ID로 조회 + 크로스 파티션 쿼리)
         try:
             query = f"SELECT * FROM c"
             existing_user = list(container.query_items(
@@ -337,10 +330,9 @@ def create_user():
     user_item = {
         'id': str(uuid.uuid4()),
         'username': username,
-        'password': generate_password_hash(password)  # 비밀번호 해싱
+        'password': generate_password_hash(password)
     }
     container.create_item(body=user_item)
-    # 응답에 code: 200 추가
     response = {
         "code": 200,
         "data": user_item
@@ -355,13 +347,11 @@ def update_user(user_id):
         new_username = data.get('username')
         new_password = data.get('password')
 
-        # 1. 필수 필드 검증
         if not all([new_username, new_password]):
-            return jsonify({"error": "사용자명과 비밀번호 필수 입력"}), 400
+            return jsonify({"error": "username and password need input"}), 400
 
         container = get_db_connection(USERINFO_CONTAINER_NAME)
 
-        # 2. 기존 사용자 조회 (ID로 조회 + 크로스 파티션 쿼리)
         try:
             query = f"SELECT * FROM c WHERE c.id = '{user_id}'"
             existing_user = list(container.query_items(
@@ -369,24 +359,20 @@ def update_user(user_id):
                 enable_cross_partition_query=True
             ))[0]
         except IndexError:
-            return jsonify({"error": "사용자를 찾을 수 없음"}), 404
+            return jsonify({"error": "Do not find user"}), 404
 
-        # 3. 사용자명 중복 검사
         if existing_user['username'] != new_username:
             dup_query = f"SELECT * FROM c WHERE c.username = '{new_username}'"
             if list(container.query_items(dup_query, enable_cross_partition_query=True)):
-                return jsonify({"error": "이미 사용중인 이름"}), 409
+                return jsonify({"error": "username duplicate"}), 409
 
-        # 4. 문서 업데이트
         updated_item = {
             "id": user_id,
             "username": new_username,
             "password": generate_password_hash(new_password),
-            # 기존 필드 유지
             **{k: v for k, v in existing_user.items() if k not in ['username', 'password']}
         }
 
-        # 5. 기존 문서 삭제 후 새 문서 생성 (파티션 키 변경 대응)
         container.delete_item(item=user_id, partition_key=existing_user['id'])
         container.create_item(body=updated_item)
 
@@ -396,11 +382,11 @@ def update_user(user_id):
         }), 200
 
     except CosmosHttpResponseError as e:
-        logging.error(f"Cosmos DB 오류: {str(e)}")
-        return jsonify({"error": "데이터베이스 오류"}), 500
+        logging.error(f"Cosmos DB error: {str(e)}")
+        return jsonify({"error": "db error"}), 500
     except Exception as e:
-        logging.error(f"서버 오류: {str(e)}")
-        return jsonify({"error": "내부 서버 오류"}), 500
+        logging.error(f"server error: {str(e)}")
+        return jsonify({"error": "server error"}), 500
             
 
 @app.route('/api/users/<user_id>', methods=['DELETE'])
@@ -416,7 +402,7 @@ def check_session():
     # 检查会话有效期
     if 'user_id' in session:
         last_activity = session.get('last_activity')
-        session.modified = True  # 자동 갱신 활성화
+        session.modified = True
         if last_activity and (datetime.now() - datetime.fromisoformat(last_activity)) > app.config['PERMANENT_SESSION_LIFETIME']:
             session.clear()
             return jsonify({"status": "error", "message": "Session expired"}), 401
@@ -426,7 +412,7 @@ def check_session():
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.get_json()
-    username = data.get('username', '').strip().lower()  # 대소문자 통일 및 공백 제거
+    username = data.get('username', '').strip().lower()
     password = data.get('password', '').strip()
 
     if not username or not password:
@@ -461,7 +447,7 @@ def logout():
     session.clear()
     return jsonify({"status": "success", "message": "ログアウト"}), 200
 
-@app.route('/api/protected', methods=['GET'])  # 이미 GET 요청을 처리함
+@app.route('/api/protected', methods=['GET'])
 def protected():
     if not session.get('session_id'):
         return jsonify({"status": "error", "message": "Unauthorized"}), 401
@@ -473,24 +459,20 @@ def protected():
     }), 200
 
 
-# 모니터링 상태 컨테이너 설정
 CHECK_SESSION_COOKIE = "session_cookie"
 
-# Cosmos DB 상태 확인 엔드포인트 (수정 버전)
 @app.route('/api/session_cookie', methods=['GET'])
 def get_session_cookie():
     try:
         container = get_db_connection(CHECK_SESSION_COOKIE)
         
-        # Cosmos DB에서 데이터를 쿼리하여 가져오기
-        query = "SELECT * FROM c"  # SQL 쿼리 (전체 데이터를 가져옴)
+        query = "SELECT * FROM c"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
 
-        # 각 아이템의 '_id'는 이미 문자열로 되어 있기 때문에 추가적인 변환이 필요하지 않음
         for item in items:
-            item['id'] = item['id']  # Cosmos DB에서 _id는 id로 제공
+            item['id'] = item['id']
 
-        return jsonify(items), 200  # JSON 형식으로 반환
+        return jsonify(items), 200
         
     except CosmosResourceNotFoundError:
         logging.error("Monitoring status document not found")
@@ -500,20 +482,18 @@ def get_session_cookie():
         return jsonify({"error": "Internal server error"}), 500
     
 
-# 상태 업데이트 엔드포인트 (수정 버전)
 @app.route('/api/session_cookie', methods=['PUT'])
 def update_session_cookie():
     try:
         container = get_db_connection(CHECK_SESSION_COOKIE)
         
-        # 쿠키에서 secure_session 값 추출
+        # secure_session
         # session_value = request.cookies.get('secure_session', 'none')
         session_value = request.json.get('status', 'off')
         
-        # 문서 업데이트
         status_item = {
             'id': 'session_cookie',
-            'type': 'control',  # 파티션 키
+            'type': 'control',
             'session_value': session_value,
             "timestamp": datetime.utcnow().isoformat()
         }
@@ -534,39 +514,32 @@ def update_session_cookie():
     
 #-----------API--------------------
 def remove_code_blocks(text):
-    # 정규 표현식을 사용하여 ```html 및 ``` 제거
     text = re.sub(r'```html', '', text)
     text = re.sub(r'```', '', text)
-    return text.strip()  # 앞뒤 공백 제거
+    return text.strip()
 
 def remove_code_blocks_enhance(text):
-    # 정규 표현식을 사용하여 ```html\n 및 ``` 제거
-    text = re.sub(r'```html\n?', '', text)  # ```html 또는 ```html\n 제거
-    text = re.sub(r'```', '', text)          # ``` 제거
-    text = re.sub(r'\n\n\*\*NG\*\*\n```', '', text)  # \n\n**NG**\n``` 제거
-    return text.strip()  # 앞뒤 공백 제거
+    text = re.sub(r'```html\n?', '', text)  
+    text = re.sub(r'```', '', text)
+    text = re.sub(r'\n\n\*\*NG\*\*\n```', '', text)
+    return text.strip()
 
 
 @app.route('/api/dic_search_db', methods=['POST'])
 def dic_search_db():
     try:
-        # 요청 데이터 파싱
         data = request.json
 
         original = data.get('original')
         corrected = data.get('corrected')
 
-        # Cosmos DB 컨테이너 클라이언트 가져오기
         container = get_db_connection(INTEGERATION_RURU_CONTAINER_NAME)
 
-        # DB에서 일치하는 데이터 찾기
         query = f"SELECT * FROM c WHERE c.original = '{original}' AND c.corrected = '{corrected}'"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
 
         if items:
-            # 일치하는 데이터의 result 출력
             results = [{"original": item["original"], "corrected": item["corrected"]} for item in items]
-            # results = [item if item.get("original") else {"corrected": item["corrected"], } for item in items]
             return jsonify({"success": True, "data": results}), 200
         else:
             return jsonify({"success": False, "message": "No matching data found in DB."}), 404
@@ -591,7 +564,7 @@ def ask_gpt():
         # db get map
         corrected_map = fetch_and_convert_to_dict()
 
-        # 3. apply_corrections를 사용하여 교정 적용
+        # 3. apply_corrections
         corrected = apply_corrections(prompt, corrected_map)
 
 
@@ -1761,7 +1734,7 @@ def ask_gpt():
             ],
             max_tokens=MAX_TOKENS,
             temperature=TEMPERATURE,
-            seed=SEED  # 재현 가능한 결과를 위해 seed 설정
+            seed=SEED
         )
         answer = response['choices'][0]['message']['content'].strip()
         re_answer = remove_code_blocks(answer)
@@ -1777,7 +1750,6 @@ def convert_logs(items):
         "data": []
     }
     
-    # 주어진 아이템들을 변환
     for idx, item in enumerate(items):
         log_entries = item.get("logEntries", [])
         
@@ -1786,20 +1758,18 @@ def convert_logs(items):
             timestamp_str = log_parts[0] if len(log_parts) > 1 else ""
             message = log_parts[1] if len(log_parts) > 1 else ""
             
-            # 로그 항목을 변환하여 새로운 형식에 맞추기
             log_data = {
-                "id": idx * len(log_entries) + log_idx + 1,  # ID를 고유하게 설정
-                "name": message,  # message[:30] 메시지 첫 30자만을 'name'으로 사용
-                "status": "完了(修正あり)" if "✅ SUCCESS" in message else "エラー",  # 성공 메시지에 따라 상태 결정
+                "id": idx * len(log_entries) + log_idx + 1,  # ID
+                "name": message,  # message[:30] message split pre 30 'name'
+                "status": "完了(修正あり)" if "✅ SUCCESS" in message else "エラー",
                 "timeclock": timestamp_str,
-                "progress": "成功" if "✅ SUCCESS" in message else "エラー",  # 성공 여부로 진행 상태 결정
+                "progress": "成功" if "✅ SUCCESS" in message else "エラー",
                 "timestamp": timestamp_str,
-                "selected": False  # 기본적으로 'selected' 값은 False
+                "selected": False
             }
             
             converted_data["data"].append(log_data)
     
-    # 반환할 JSON 포맷 구조에 맞추어 반환
     return converted_data
 
 # appLog
@@ -1809,37 +1779,29 @@ def get_applog():
     # Cosmos DB 连接
     container = get_db_connection(APPLOG_CONTAINER_NAME)
 
-    # Cosmos DB에서 데이터를 쿼리하여 가져오기
-    query = "SELECT * FROM c"  # SQL 쿼리 (전체 데이터를 가져옴)
+    query = "SELECT * FROM c"
     items = list(container.query_items(query=query, enable_cross_partition_query=True))
 
-    # 각 아이템의 '_id'는 이미 문자열로 되어 있기 때문에 추가적인 변환이 필요하지 않음
     for item in items:
-        item['id'] = item['id']  # Cosmos DB에서 _id는 id로 제공
+        item['id'] = item['id']
 
-    # return jsonify(items)  # JSON 형식으로 반환
-    # 변환 실행
     converted_logs = convert_logs(items)
-    return jsonify(converted_logs)  # JSON 형식으로 반환
+    return jsonify(converted_logs)
 
 # azure Cosmos DB
 @app.route('/api/faqs', methods=['GET'])
 def get_faq():
-    # Cosmos DB 链接客户端,ENV에서 받아온다다
+    # Cosmos DB 链接客户端,ENV
     container=get_db_connection()
 
-    # Cosmos DB에서 데이터를 쿼리하여 가져오기
-    query = "SELECT * FROM c"  # SQL 쿼리 (전체 데이터를 가져옴)
+    query = "SELECT * FROM c"
     items = list(container.query_items(query=query, enable_cross_partition_query=True))
 
-    # 각 아이템의 '_id'는 이미 문자열로 되어 있기 때문에 추가적인 변환이 필요하지 않음
     for item in items:
-        item['id'] = item['id']  # Cosmos DB에서 _id는 id로 제공
+        item['id'] = item['id']
 
-    return jsonify(items)  # JSON 형식으로 반환
+    return jsonify(items)
 
-
-# 527 debug
 @app.route('/api/tenbrend', methods=['POST'])
 def tenbrend():
     data = request.get_json() or {}
@@ -2097,29 +2059,21 @@ def transform_data(items,fund_type):
     return menu_data
 
 def extract_pdf_path(link):
-    """ <a href="URL"> 에서 URL을 추출하는 함수 """
     match = re.search(r'href="([^"]+)"', link)
     return match.group(1) if match else ""
 
 def extract_base_name(file_path):
-    """파일 경로에서 확장자 앞의 이름 추출"""
-    # 파일 이름 추출 (경로 제거)
     file_name = os.path.basename(file_path)
-    
-    # 확장자 분리
     base_name, _ = os.path.splitext(file_name)
-    
     return base_name
 
 # public_Fund and private_Fund
 @app.route('/api/fund', methods=['POST'])
 def handle_fund():
-    # 파라미터 유효성 검사
     fund_type = request.json.get('type')
     if fund_type not in ['public', 'private']:
         return jsonify({"error": "Invalid fund type"}), 400
 
-    # 컨테이너 이름 결정
     container_name = f"{fund_type}_Fund"
     
     try:
@@ -2127,15 +2081,12 @@ def handle_fund():
         container = get_db_connection(container_name)
         logging.info(f"Connected to {container_name} container")
         
-        # 쿼리 실행
         query = "SELECT * FROM c"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
         
-        # 결과 필터링
         # filtered_items = [item for item in items if item and item.get('id')]
         
         # return jsonify(filtered_items)
-        # 데이터 변환 (트리 구조)
         formatted_data = transform_data(items,fund_type)
 
         return jsonify(formatted_data)
@@ -2171,11 +2122,10 @@ def convert_format(filtered_items):
     checkResults = {}
 
     for correction in filtered_items.get("result", {}).get("corrections", []):
-        page = correction["page"] + 1  # 페이지 번호를 1부터 시작하도록 변환
+        page = correction["page"] + 1
         position = {}
         colorSet = "rgb(172 228 230)"
 
-        # 수정 내역 변환
         change = {
             "before": correction["original_text"],
             "after": correction["comment"].split("→")[-1].strip(),
@@ -2187,30 +2137,24 @@ def convert_format(filtered_items):
             name = ""
             colorSet= "rgba(255, 255, 0, 0.5)"
 
-        # 위치 정보가 있는 경우 변환
         if correction["locations"]:
-            # 위치 정보가 있는 경우 변환
-            # for idx, loc in enumerate(correction["locations"]):  # 모든 위치 정보를 처리
-            # 829 fix
-            # checkResults에 페이지별 그룹화
+            # for idx, loc in enumerate(correction["locations"]): 
+            # checkResults
             if page not in checkResults:
                 checkResults[page] = [{"title": filtered_items["fileName"], "items": []}]
 
             # loc = correction["locations"][0]
             for loc in correction["locations"]:
-                pdf_height = loc.get("pdf_height", 792)  # PDF 높이 (기본값: A4 크기, 792pt)
+                pdf_height = loc.get("pdf_height", 792)  # PDF height (Default: A4 , 792pt)
 
-                # 첫 번째 위치만 x 좌표를 조정
-                #debug
                 # x = loc["x0"] - 22 if idx == 0 else loc["x0"]
                 position = {
-                    "x": loc["x0"],  # x 좌표는 그대로 사용
-                    "y": pdf_height - loc["y1"] + 50,  # y 좌표를 PDF 높이를 기준으로 변환
-                    "width": loc["x1"] - loc["x0"],  # 너비 계산
-                    "height": loc["y1"] - loc["y0"],  # 높이 계산
+                    "x": loc["x0"],
+                    "y": pdf_height - loc["y1"] + 50,
+                    "width": loc["x1"] - loc["x0"],
+                    "height": loc["y1"] - loc["y0"],
                 }
 
-                # 중복 체크
                 if correction["intgr"]:
                     checkResults[page][0]["items"].append({
                         "name": name,
@@ -2247,7 +2191,6 @@ def convert_format(filtered_items):
 # public_Fund and check-results
 @app.route('/api/check_results', methods=['POST'])
 def handle_check_results():
-    # 파라미터 유효성 검사
     fund_type = request.json.get('type')
     if fund_type not in ['public', 'private']:
         return jsonify({"error": "Invalid fund type"}), 400
@@ -2260,7 +2203,6 @@ def handle_check_results():
     if not pageNumber:
         return jsonify({"error": "pageNumber is required"}), 400
 
-    # 컨테이너 이름 결정
     container_name = f"{fund_type}_Fund"
     
     try:
@@ -2268,7 +2210,6 @@ def handle_check_results():
         container = get_db_connection(container_name)
         logging.info(f"Connected to {container_name} container")
         
-        # Cosmos DB에서 특정 id로 데이터를 쿼리하여 가져오기
         query = "SELECT * FROM c WHERE c.id = @id"
         parameters = [{"name": "@id", "value": selected_id}]
         items = list(container.query_items(query=query, parameters=parameters, enable_cross_partition_query=True))
@@ -2276,7 +2217,6 @@ def handle_check_results():
         if not items:
             return jsonify({"error": "Item not found"}), 404
 
-        # 데이터 변환 (트리 구조)
         converted_data = convert_format(items[0])
 
         return jsonify(converted_data)
@@ -2288,7 +2228,6 @@ def handle_check_results():
 # get side bar
 @app.route('/api/menu', methods=['POST'])
 def handle_menu():
-    # 파라미터 유효성 검사
     fund_type = request.json.get('type')
     page = int(request.json.get('page', 1))
     page_size = int(request.json.get('page_size', 10))
@@ -2297,7 +2236,7 @@ def handle_menu():
     if fund_type not in ['public', 'private']:
         return jsonify({"error": "Invalid fund type"}), 400
 
-    # 컨테이너 이름 결정
+    # container name Setting
     container_name = f"{fund_type}_Fund"
 
     
@@ -2306,14 +2245,14 @@ def handle_menu():
         container = get_db_connection(container_name)
         logging.info(f"Connected to {container_name} container")
         
-        # 쿼리 실행
+        # Query exe
         query = "SELECT * FROM c WHERE CONTAINS(c.id, '.pdf') OR c.upload_type='参照ファイル'"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
         
-        # 결과 필터링
+        # filter result
         filtered_items = [item for item in items if item and item.get('id')]
 
-        # 페이지네이션 적용
+        # pagenations
         total = len(filtered_items)
         start = (page - 1) * page_size
         end = start + page_size
@@ -2333,13 +2272,13 @@ def handle_menu():
     
 @app.route('/api/menu_all', methods=['POST'])
 def handle_menu_all():
-    # 파라미터 유효성 검사
+    # param check
     fund_type = request.json.get('type')
 
     if fund_type not in ['public', 'private']:
         return jsonify({"error": "Invalid fund type"}), 400
 
-    # 컨테이너 이름 결정
+    # container name Setting
     container_name = f"{fund_type}_Fund"
     
     try:
@@ -2347,11 +2286,11 @@ def handle_menu_all():
         container = get_db_connection(container_name)
         logging.info(f"Connected to {container_name} container")
         
-        # 쿼리 실행
+        # Query exe
         query = "SELECT * FROM c WHERE CONTAINS(c.id, '.pdf') OR c.upload_type='参照ファイル'"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
         
-        # 결과 필터링
+        # filter result
         filtered_items = [item for item in items if item and item.get('id')]
         response = {
         "code": 200,
@@ -2364,26 +2303,24 @@ def handle_menu_all():
         logging.error(f"Database error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
     
-# Cosmos DB 상태 확인 엔드포인트
-# 모니터링 상태 컨테이너 설정
+# Cosmos DB 状态确认 endpoint
 MONITORING_CONTAINER_NAME = "monitoring-status"
 
-# Cosmos DB 상태 확인 엔드포인트
+# Cosmos DB 状态确认 endpoint
 @app.route('/api/monitoring-status', methods=['GET'])
 def get_monitoring_status():
     try:
         # Cosmos DB 连接
         container = get_db_connection(MONITORING_CONTAINER_NAME)
         
-        # Cosmos DB에서 데이터를 쿼리하여 가져오기
-        query = "SELECT * FROM c"  # SQL 쿼리 (전체 데이터를 가져옴)
+        # Cosmos DB里取数据
+        query = "SELECT * FROM c"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
 
-        # 각 아이템의 '_id'는 이미 문자열로 되어 있기 때문에 추가적인 변환이 필요하지 않음
         for item in items:
-            item['id'] = item['id']  # Cosmos DB에서 _id는 id로 제공
+            item['id'] = item['id']
 
-        return jsonify(items), 200  # JSON 형식으로 반환
+        return jsonify(items), 200
         
     except CosmosResourceNotFoundError:
         logging.error("Monitoring status document not found")
@@ -2392,7 +2329,7 @@ def get_monitoring_status():
         logging.error(f"Database error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
 
-# 상태 업데이트 엔드포인트
+# 状态更新
 @app.route('/api/monitoring-status', methods=['PUT'])
 def update_monitoring_status():
     try:
@@ -2401,10 +2338,9 @@ def update_monitoring_status():
         
         new_status = request.json.get('status', 'off')
         
-        # 문서 업데이트
         status_item = {
             'id': 'monitoring_status',
-            'type': 'control',  # 파티션 키 필드
+            'type': 'control',
             'status': new_status,
             "timestamp": datetime.utcnow().isoformat()
         }
@@ -2421,7 +2357,7 @@ def update_monitoring_status():
         return jsonify({"error": "Internal server error"}), 500
 
 # read/unread status change
-# Cosmos DB 상태 확인 엔드포인트
+# Cosmos DB 状态确认 endpoint
 @app.route('/api/update_read_status', methods=['POST'])
 def get_read_status():
     fund_type = request.json.get('type')
@@ -2432,14 +2368,13 @@ def get_read_status():
     if not selected_id:
         return jsonify({"error": "selectedId is required"}), 400
 
-    # 컨테이너 이름 결정
+    # container name Setting
     container_name = f"{fund_type}_Fund"
     try:
         # Cosmos DB 连接
         container = get_db_connection(container_name)
         logging.info(f"Connected to {container_name} container")
         
-        # Cosmos DB에서 특정 id로 데이터를 쿼리하여 가져오기
         query = "SELECT * FROM c WHERE c.id = @id"
         parameters = [{"name": "@id", "value": selected_id}]
         items = list(container.query_items(query=query, parameters=parameters, enable_cross_partition_query=True))
@@ -2447,7 +2382,6 @@ def get_read_status():
         if not items:
             return jsonify({"error": "Item not found"}), 404
 
-        # 조회된 항목 반환
         return jsonify(items[0]), 200
         
     except CosmosResourceNotFoundError:
@@ -2459,7 +2393,6 @@ def get_read_status():
     
 @app.route('/api/update_read_status', methods=['PUT'])
 def update_read_status():
-    # 파라미터 유효성 검사
     selected_id = request.json.get('selectedId')
     if not selected_id:
         return jsonify({"error": "selectedId is required"}), 400
@@ -2472,7 +2405,7 @@ def update_read_status():
     if fund_type not in ['public', 'private']:
         return jsonify({"error": "Invalid fund type"}), 400
 
-    # 컨테이너 이름 결정
+    # container name Setting
     container_name = f"{fund_type}_Fund"
     
     try:
@@ -2487,14 +2420,12 @@ def update_read_status():
         if not items:
             return jsonify({"error": "Item not found"}), 404
 
-        # 조회된 문서 가져오기
         status_item = items[0]
 
-        # readStatus와 timestamp만 업데이트
+        # readStatus 和 timestamp
         status_item['readStatus'] = mark
         status_item['timestamp'] = datetime.utcnow().isoformat()
         
-        # 문서 업데이트
         container.upsert_item(body=status_item)
         logging.info(f"readStatus updated to {mark} for item {selected_id}")
         return jsonify({'message': 'Status updated', 'new_status': mark, 'code': 200}), 200
@@ -2511,19 +2442,17 @@ def update_read_status():
 def health_check():
     return "OK", 200
 
-# 로깅 설정
 logging.basicConfig(level=logging.INFO)
 
 def get_storage_container():
     """
-    Azure AD RBAC 방식을 사용하여 Azure Blob Storage에 连接하고, ContainerClient 객체를 반환하는 함수.
-    :return: ContainerClient 객체
+    Azure AD RBAC 方式 Azure Blob Storage에 连接, 返回ContainerClient .
+    :return: ContainerClient
     """
     try:
-        # BlobServiceClient 생성
+        # BlobServiceClient 
         blob_service_client = BlobServiceClient(account_url=ACCOUNT_URL, credential=credential)
         
-        # 컨테이너 클라이언트 가져오기
         container_client = blob_service_client.get_container_client(STORAGE_CONTAINER_NAME)
         
         print("Connected to Azure Blob Storage via Azure AD RBAC")
@@ -2536,13 +2465,11 @@ def get_storage_container():
         raise e
     
 def allowed_file(filename):
-    """
-    업로드 가능한 파일 형식을 확인하는 함수.
-    
-    :param filename: 파일명
+    """    
+    :param filename:
     :return: bool
     """
-    ALLOWED_EXTENSIONS = {'pdf', 'xlsx','txt','xls','XLSX','xlm','xlsm','xltx','xltm','xlsb','doc','docx'}   # PDF와 Excel 파일 허용 
+    ALLOWED_EXTENSIONS = {'pdf', 'xlsx','txt','xls','XLSX','xlm','xlsm','xltx','xltm','xlsb','doc','docx'}   # PDF 和 Excel  
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route('/api/test_token', methods=['GET'])
@@ -2566,18 +2493,14 @@ def parse_escaped_json(raw_text: str):
 
     text = text.replace('""', '"')
 
-    # 5) 이제 text는 완전한 JSON 문자열이므로 json.loads로 파싱
     parsed = json.loads(text)
     return parsed
 
 def parse_gpt_response(answer):
-    """GPT 응답에서 유효한 JSON 추출"""
     try:
-        # JSON 형식 직접 추출 시도
         json_str = re.search(r'\{[\s\S]*?\}', answer).group()
         return json.loads(json_str)
     except (AttributeError, json.JSONDecodeError):
-        # Python 딕셔너리 형식 대응
         dict_str = re.search(r'corrected_map\s*=\s*\{[\s\S]*?\}', answer, re.DOTALL)
         if dict_str:
             dict_str = dict_str.group().split('=', 1)[1].strip()
@@ -2585,7 +2508,6 @@ def parse_gpt_response(answer):
         return {}
 
 def detect_corrections(original, corrected):
-    """정확한 변경 부분 감지"""
     matcher = SequenceMatcher(None, original, corrected)
     corrections = {}
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
@@ -2597,7 +2519,6 @@ def detect_corrections(original, corrected):
     return corrections
 
 def filter_corrected_map(corrected_map):
-    # 불필요한 키와 값을 제거
     keys_to_remove = [" ", "  "]
     for key in keys_to_remove:
         if key in corrected_map:
@@ -2611,15 +2532,12 @@ def apply_corrections(input_text, corrected_map):
 
     for original, corrected in corrected_map.items():
 
-        # original == corrected 면 치환하지 않음
         if result == corrected:
             continue
 
         if re.search(re.escape(corrected), result):
-            # corrected 안에 original이 포함된 경우에는 중복 방지를 위해 skip
             continue
 
-        # 이미 이 용어(original)가 교정된 형식으로 존재하는 경우는 제외
         pattern_already_corrected = re.compile(
             rf"<span style=\"color:red;\">{re.escape(corrected)}</span>\s*"
             rf"\(<span>修正理由: 用語の統一\s*<s style=\"background:yellow;color:red\">{re.escape(original)}</s>\s*→\s*{re.escape(corrected)}</span>\)"
@@ -2627,7 +2545,7 @@ def apply_corrections(input_text, corrected_map):
         if pattern_already_corrected.search(result):
             continue
 
-        # original이 존재할 때만 치환
+        # original
         if re.search(original, result):
             replacement = (
                 f'<span style="color:red;">{corrected}</span> '
@@ -2641,14 +2559,11 @@ def apply_corrections(input_text, corrected_map):
 
 DICTIONARY_CONTAINER_NAME = "dictionary"
 def fetch_and_convert_to_dict():
-    """DB에서 데이터를 읽어서 딕셔너리로 변환"""
     try:
         container = get_db_connection(DICTIONARY_CONTAINER_NAME)
-        # 🔹 모든 데이터를 가져오기
         query = "SELECT c.original, c.corrected FROM c"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
 
-        # 🔹 변환된 딕셔너리 생성
         corrected_dict = {item["original"]: item["corrected"] for item in items if "original" in item and "corrected" in item}
 
         return corrected_dict
@@ -2670,15 +2585,12 @@ def check_upload():
         if file.filename == '':
             return jsonify({"success": False, "error": "No selected file"}), 400
 
-
-        # 파일을 메모리에서 읽기
         file_bytes = file.read()
 
         if file and allowed_file(file.filename):
             try:
                 if file.filename.endswith('.pdf'):  
                     tenbrend_data = check_tenbrend(file.filename,fund_type)
-                    # PDF 파일 처리
                     reader = PdfReader(io.BytesIO(file_bytes))
                     text = ""
                     for page in reader.pages:
@@ -2689,20 +2601,19 @@ def check_upload():
 
                     return jsonify({
                         "success": True,
-                        "original_text": extract_text_from_base64_pdf(file_bytes),  # file_bytesPDF text순서  , input = extract_text_from_base64_pdf(pdf_base64)
-                        "pdf_bytes": file_base64,  # PDF 파일의 Base64 인코딩
+                        "original_text": extract_text_from_base64_pdf(file_bytes),  # file_bytesPDF text  , input = extract_text_from_base64_pdf(pdf_base64)
+                        "pdf_bytes": file_base64,  # PDF Base64 
                         "file_name": file.filename,
                         "tenbrend_data":tenbrend_data,
                         # "fund_type": fund_type
                     })
                 
                 elif file.filename.endswith('.txt'):
-                    
-                    text = file_bytes.decode('utf-8')  # UTF-8 인코딩 사용
+                    text = file_bytes.decode('utf-8')  # UTF-8 
 
                     return jsonify({
                         "success": True,
-                        "prompt_text": text  # Excel에서 읽어온 원본 텍스트
+                        "prompt_text": text
                     })
 
                 elif file.filename.endswith(('.doc', '.docx')):
@@ -2765,18 +2676,16 @@ def check_upload():
                     #             tree = ET.fromstring(file_data)
                     #             ns = {'ss': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
 
-                    #             # 모든 <ss:Row> 태그를 순회하여 각 행의 셀을 읽음
                     #             for row in tree.findall(".//ss:Row", ns):
                     #                 for cell in row.findall("ss:Cell", ns):
                     #                     value_element = cell.find("ss:Data", ns)
                     #                     if value_element is not None and value_element.text:
                     #                         all_text.append(value_element.text.strip())
 
-                    #                     # 합병된 셀 처리
                     #                     if cell.attrib.get('ss:MergeAcross') is not None:
                     #                         merged_value = value_element.text.strip() if value_element is not None else ""
                     #                         for _ in range(int(cell.attrib['ss:MergeAcross'])):
-                    #                             all_text.append(merged_value)  # 합병된 셀의 값을 반복 추가
+                    #                             all_text.append(merged_value)
 
                     #         except Exception as e:
                     #             print(f"Warning: Parsing {item.filename} failed - {e}")
@@ -2794,12 +2703,9 @@ def check_upload():
                     # #     corrected_map = ""
 
 
-                    # # 기존 zip 마무리
                     # in_memory_zip.close()
-                    # # 새 zip 마무리
                     # new_zip.close()
 
-                    # # 🔹 7️⃣ 수정된 엑셀을 Base64로 인코딩
                     # output_buffer.seek(0)
                     #--------------excel end------------------------------------------
                     # excel_base64 = base64.b64encode(output_buffer.getvalue()).decode('utf-8')
@@ -2822,7 +2728,6 @@ def check_upload():
 
 # 5007 debug
 def remove_correction_blocks(html_text):
-    # '提示' 또는 '修正理由' 포함된 span 블록 전체를 삭제하는 정규식
     pattern = re.compile(
         r'<span[^>]*?>.*?<\/span>\s*\(<span>提示:<s[^>]*?>.*?<\/s><\/span>\)',
         re.DOTALL
@@ -3284,13 +3189,11 @@ replace_rules2 ={
 
 def merge_brackets(content: str) -> str:
     """
-    괄호 내부의 줄바꿈을 제거합니다. 예: 'CPI（消費者物\n価指数）' -> 'CPI（消費者物価指数）'
+    括号内换行符: 'CPI（消費者物\n価指数）' -> 'CPI（消費者物価指数）'
     """
     # return regcheck.sub(r'（[^）\n\r]*[\n\r]+[^）]*）', lambda m: m.group(0).replace("\n", "").replace("\r", ""), content)
-    # 전처리: '단어\n（내용）' -> '단어（내용）' 로 병합
     content = regcheck.sub(r'([^\s\n\r])[\s\n\r]+（', r'\1（', content)
 
-    # 괄호 내부의 줄바꿈 및 공백 제거
     def replacer(match):
         inside = match.group(1)
         cleaned = regcheck.sub(r'[\s\u3000]+', '', inside)
@@ -3301,9 +3204,6 @@ def merge_brackets(content: str) -> str:
 
 # (4月30日 → 2025年4月30日)
 def insert_year_by_regex(date_str: str, full_text: str, date_pos: int) -> str:
-    """
-    날짜 문자열(date_str)의 위치(date_pos) 이전에서 가장 가까운 XXXX年을 찾아 삽입
-    """
     year_matches = list(regcheck.finditer(r'(\d{4})年', full_text[:date_pos]))
     if year_matches:
         last_year = year_matches[-1].group(1)
@@ -3312,7 +3212,6 @@ def insert_year_by_regex(date_str: str, full_text: str, date_pos: int) -> str:
 
 # (4月30日 → 2025年4月30日)
 def year_half_dict(text: str) -> str:
-    """전각 숫자를 반각으로 변환"""
     full_half = {
         '０': '0', '１': '1', '２': '2', '３': '3', '４': '4',
         '５': '5', '６': '6', '７': '7', '８': '8', '９': '9'
@@ -3340,7 +3239,6 @@ def opt_check_eng(content, rules):
             raw_key = k.replace("(", "（").replace(")", "）")
             full_key = v.replace("(", "（").replace(")", "）")
 
-            # full_key에 괄호가 없는 경우 출력하지 않도록 조건 추가
             if '(' not in full_key and '（' not in full_key:
                 continue
             
@@ -3348,7 +3246,7 @@ def opt_check_eng(content, rules):
             escaped_v = regcheck.escape(full_key)
 
             # ------------------------------
-            # 키워드 매칭 패턴 (괄호 있는 경우 + 없는 경우)
+            # keyword 没有对应的pattern
             # ------------------------------
             new_k = escaped_k
             paren_pattern = f"{escaped_k}（[^）]+）"
@@ -3379,13 +3277,13 @@ def opt_check_eng(content, rules):
             matched_raw_with_paren = regcheck.search(paren_pattern, normalized_line)
             matched_raw = regcheck.search(new_k, normalized_line)
 
-            # ✅ 정확한 full_key 첫 등장
+            # ✅ 校验full_key,第一次出现
             if matched_full and full_key not in seen_full:
                 seen_raw.add(raw_key)
                 seen_full.add(full_key)
                 continue
 
-            # ✅ full_key 재등장
+            # ✅ full_key ,第二次出现
             elif matched_full and full_key in seen_full:
                 result.append({full_key: "删除"})
             
@@ -3394,7 +3292,6 @@ def opt_check_eng(content, rules):
                 seen_raw.add(raw_key)
                 seen_full.add(full_key)
 
-            # ✅ raw_key 첫 등장 && full_key는 이미 본 상태
             elif matched_raw and raw_key not in seen_raw:
                 result.append({raw_key: full_key})
                 seen_raw.add(raw_key)
@@ -3405,7 +3302,7 @@ def opt_check_eng(content, rules):
     return results
 
 def opt_check_ruru1(content, rules):
-    content = merge_brackets(content)  # 1️⃣ 괄호 내 줄바꿈 제거
+    content = merge_brackets(content)
 
     result = []
     for k, v in rules.items():
@@ -3437,19 +3334,17 @@ def opt_check_ruru1(content, rules):
                 new_k = f"(?<!薄){escaped_k}"
             else:
                 new_k = f"(?<![a-zA-Z]){escaped_k}(?![a-zA-Z])"
-        # 예외 처리: 中銀
+        #  中銀
         elif raw_key == "中銀":
-            # '中央銀行' 앞에 수식어 포함 여부 확인
             matches = regcheck.finditer(escaped_v, content)
             exclude = False
             for m in matches:
-                # 예: '欧州中央銀行' => m.start() - 2 >= 0, 앞 2글자 포함 확인
                 prefix = content[max(0, m.start() - 2): m.start()]
                 if prefix and not regcheck.match(r"[ \t\n\r]", prefix):
                     exclude = True
                     break
             if exclude:
-                new_k = escaped_k  # full_key는 건너뛰고, raw_key만 검사
+                new_k = escaped_k
                 full_match = None
             else:
                 full_match = regcheck.search(escaped_v, content)
@@ -3458,9 +3353,7 @@ def opt_check_ruru1(content, rules):
         raw_match = regcheck.search(new_k, content)
         full_match = regcheck.search(escaped_v, content)
 
-        # 일반 조건: full_key가 먼저 등장하면 제외
-        if raw_key != "中銀":  # 중銀 예외 상황 제외
-            # full_key가 먼저 등장한 경우, 이 키는 제외하고 다음 키로
+        if raw_key != "中銀":
             if full_match and raw_match:
                 if full_match.start() <= raw_match.start():
                     continue
@@ -3494,15 +3387,10 @@ def opt_check_ruru2(content, replace_rules2):
 
 # 0501 debug
 def find_corrections(corrected_text,input_text,pageNumber):
-    """
-    GPT-4의 응답 결과(corrected_text)를 분석하여 틀린 부분을 찾습니다.
-    """
     corrections = []
-    # 정규 표현식을 사용하여 틀린 부분과 수정 이유 또는提示을 추출
     pattern = r'<span\s+style="color:red;">([\s\S]*?)<\/span>\s*\(<span>\s*修正理由[::]\s*([\s\S]*?)\s*<s[^>]*>([\s\S]*?)<\/s>\s*→\s*([\s\S]*?)<\/span>\)'
     matches = re.findall(pattern, corrected_text)
 
-    # 디버깅: matches 출력
     print("Matches found:", matches)
     # <span style="color:red;">上午12时00分</span> (<span>修正理由: 不要な中国語表記 <s style="background:yellow;color:red">上午12时00分</s> → （削除）</span>)
 
@@ -3517,12 +3405,12 @@ def find_corrections(corrected_text,input_text,pageNumber):
 
             corrections.append({
                 "page": pageNumber,
-                "original_text": corrected_text_re,  # 전체 입력
+                "original_text": corrected_text_re,
                 "comment": comment,
                 "reason_type":reason_type,
                 "check_point": input_text.strip(),
                 "locations": [],
-                "intgr": False, # for debug 62
+                "intgr": False, 
             })
     
     return corrections
@@ -3530,16 +3418,12 @@ def find_corrections(corrected_text,input_text,pageNumber):
 # 814 ,add dotfind 句読点
 #------------------------------------------------------------
 def check_fullwidth_period(sentence):
-    """문장이 전각 마침표(。)로 끝나는지 체크"""
     return sentence.endswith("。")
 
 #---------------------------------------------------------------------------
 
 # 0623 debug
 def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list):
-    """
-    GPT-4의 응답 결과(corrected_text)를 분석하여 틀린 부분을 찾습니다.
-    """
     corrections = []
 
 #-------------------
@@ -3554,9 +3438,9 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
             "original_text": word[0],  # original_text,
             "comment": word[0],
             "reason_type": reason_type,
-            "check_point": word[1],  # 필요에 따라 입력
-            "locations": [],  # 필요에 따라 입력
-            "intgr": False,  # for debug 62
+            "check_point": word[1],
+            "locations": [],
+            "intgr": False,  
         })
 #-------------------
     if fund_type == 'public':
@@ -3565,10 +3449,10 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
         half_width_katakana_matches = regcheck.findall(pattern_half_width_katakana, input_text)
 
         for match in half_width_katakana_matches:
-            corrected_text_re = half_and_full_process(match,half_to_full_dict)  # 반각 카타카나를 전각으로 변환
-            reason_type = "半角を全角統一"  # 수정 이유
-            original_text = match  # 원본 텍스트
-            target_text = corrected_text_re  # 전각으로 변환된 텍스트
+            corrected_text_re = half_and_full_process(match,half_to_full_dict)  # 半角→全角
+            reason_type = "半角を全角統一"
+            original_text = match
+            target_text = corrected_text_re
             # 「％」表記の統一（半角→全角） -0.09% → -0.09％
             comment = f"{reason_type} {original_text} → {target_text}"
 
@@ -3579,7 +3463,7 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
                 "reason_type": reason_type,
                 "check_point": reason_type,
                 "locations": [],
-                "intgr": False, # for debug 62
+                "intgr": False, 
             })
 
         # # （半角括弧 → 全角括弧） -() → () ,with date format: \((?!\d{4}年\d{1,2}月\d{1,2}日)([^)]+)\)
@@ -3587,10 +3471,10 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
         # half_width_kuohao_matches = regcheck.findall(pattern_half_width_kuohao, input_text)
 
         # for match in half_width_kuohao_matches:
-        #     corrected_text_re = half_and_full_process(match,half_to_full_dict)  # 반각 카타카나를 전각으로 변환
-        #     reason_type = "半角括弧を全角括弧に統一"  # 수정 이유
-        #     original_text = match  # 원본 텍스트
-        #     converted = corrected_text_re  # 전각으로 변환된 텍스트
+        #     corrected_text_re = half_and_full_process(match,half_to_full_dict)  # 半角→全角
+        #     reason_type = "半角括弧を全角括弧に統一"
+        #     original_text = match
+        #     converted = corrected_text_re
         #     target_text = re.sub(r'\(([^)]+)\)', r'（\1）', converted)
         #     # ()表記の統一(分配金再投資)） -(分配金再投資) → （分配金再投資）
         #     comment = f"{reason_type} {original_text} → {target_text}"
@@ -3602,7 +3486,7 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
         #         "reason_type": reason_type,
         #         "check_point": input_text.strip(),
         #         "locations": [],
-        #         "intgr": False, # for debug 62
+        #         "intgr": False, 
         #     })
 
         # 半角→全角
@@ -3610,10 +3494,10 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
         full_width_matches = regcheck.findall(pattern_full_width_numbers_and_letters, input_text)
 
         for match in full_width_matches:
-            corrected_text_re = half_and_full_process(match,full_to_half_dict)  # 전각 숫자 및 알파벳을 반각으로 변환
-            reason_type = "全角を半角統一"  # 수정 이유
-            original_text = match  # 원본 텍스트
-            target_text = corrected_text_re  # 반각으로 변환된 텍스트
+            corrected_text_re = half_and_full_process(match,full_to_half_dict)  # 全角→半角
+            reason_type = "全角を半角統一"
+            original_text = match
+            target_text = corrected_text_re
 
             comment = f"{reason_type} {original_text} → {target_text}"
 
@@ -3624,7 +3508,7 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
                 "reason_type": reason_type,
                 "check_point": reason_type,
                 "locations": [],
-                "intgr": False, # for debug 62
+                "intgr": False, 
             })
             
         # （注0-9）--删除
@@ -3633,9 +3517,9 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
 
         for match in full_width_matches_delete:
             corrected_text_re = match
-            reason_type = "删除"  # 수정 이유
-            original_text = match  # 원본 텍스트
-            target_text = corrected_text_re  # 반각으로 변환된 텍스트
+            reason_type = "删除"
+            original_text = match
+            target_text = corrected_text_re
 
             comment = f"{reason_type} {original_text} → {target_text}"
 
@@ -3646,48 +3530,44 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
                 "reason_type": reason_type,
                 "check_point": reason_type,
                 "locations": [],
-                "intgr": False, # for debug 62
+                "intgr": False,
             })
 #-------------------
     # 年度
     # if fund_type == 'public':
     #     cleaned_text = regcheck.sub(r'\n\s*', '', input_text)
-    #     date_pattern = r'(?<!\d{4}年)(\d{1,2})月(\d{1,2})日'  # 연도 없는 날짜만
+    #     date_pattern = r'(?<!\d{4}年)(\d{1,2})月(\d{1,2})日'
 
     #     for match in regcheck.finditer(date_pattern, cleaned_text):
-    #         date_str = match.group(0)               # 예: '4月30日'
-    #         date_pos = match.start()                # 위치
-    #         full_date = insert_year_by_regex(date_str, cleaned_text, date_pos)  # 연도 추가
-    #         half_date = year_half_dict(full_date)     # 전각 숫자 → 반각
+    #         date_str = match.group(0)               # '4月30日'
+    #         date_pos = match.start()            
+    #         full_date = insert_year_by_regex(date_str, cleaned_text, date_pos)
+    #         half_date = year_half_dict(full_date)
 
-    #         # 원본 주변 텍스트 추출
     #         context_pattern = r'.{0,8}' + regcheck.escape(date_str)
     #         context_match = regcheck.search(context_pattern, cleaned_text)
     #         original_text = context_match.group() if context_match else date_str
 
     #         comment = f"{original_text} → {half_date}"
-
     #         corrections.append({
     #             "page": pageNumber,
     #             "original_text": original_text,
     #             "comment": comment,
     #             "reason_type": '年度用語の統一',
     #             "check_point": '年度用語の統一',
-    #             "locations": [],  # 위치 정보는 필요에 따라 추가
+    #             "locations": [],
     #             "intgr": False,  # for debug
     #         })
 #-------------------
     # 英略词
     if fund_type == 'public':
         results = opt_check_eng(input_text, replace_rules)
-        # 데이터 순환
+
         for line_result in results:
-            if line_result:  # entry가 비어있지 않은 경우
+            if line_result:
                 for item in line_result:
-                    if isinstance(item, dict):  # item이 딕셔너리인지 확인
+                    if isinstance(item, dict):
                         for original_text, corrected_text_re in item.items():
-                            # comment와 reason_type은 예시로 설정 (필요에 따라 수정)
-                            # comment = f"{key}에 대한 수정 사항입니다."
                             reason_type = "用語の統一"
                         
                             if corrected_text_re == "删除":
@@ -3710,9 +3590,9 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
     
         for item in results_ruru1:
             for k, v in item.items():
-                original_text = k  # 키 값을 original_text에 저장 AI
-                corrected_text_re = v  # 값(v)을 corrected_text_re에 저장 AI（人工知能）
-                reason_type = "用語の統一"  # 수정 이유
+                original_text = k
+                corrected_text_re = v
+                reason_type = "用語の統一"
 
                 comment = f"{reason_type} {original_text} → {corrected_text_re}"
 
@@ -3721,9 +3601,9 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
                 "original_text": extract_text(input_text, original_text),# original_text,
                 "comment": comment,
                 "reason_type": reason_type,
-                "check_point": reason_type,  # 필요에 따라 입력
-                "locations": [],  # 필요에 따라 입력
-                "intgr": False,  # for debug 62
+                "check_point": reason_type,
+                "locations": [],
+                "intgr": False,  
             })
 
 # 英略词，only 地政学
@@ -3732,9 +3612,9 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
     
         for item in results_ruru2:
             for k, v in item.items():
-                original_text = k  # 키 값을 original_text에 저장 AI
-                corrected_text_re = v  # 값(v)을 corrected_text_re에 저장 AI（人工知能）
-                reason_type = "用語の統一"  # 수정 이유
+                original_text = k  # original_text save to AI
+                corrected_text_re = v  # value(v)을 corrected_text_re save to AI（人工知能）
+                reason_type = "用語の統一"
 
                 comment = f"{reason_type} {original_text} → {corrected_text_re}"
 
@@ -3743,9 +3623,9 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
                 "original_text": extract_text(input_text, original_text),# original_text,
                 "comment": comment,
                 "reason_type": reason_type,
-                "check_point": reason_type,  # 필요에 따라 입력
-                "locations": [],  # 필요에 따라 입력
-                "intgr": False,  # for debug 62
+                "check_point": reason_type,
+                "locations": [],
+                "intgr": False,
             })
 
 # -----------------
@@ -3758,8 +3638,8 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
                 "comment": f"{word_result} → ", #word_result,
                 "reason_type": "メッセージの表示",
                 "check_point": word_result,
-                "locations": [],  # 필요에 따라 입력
-                "intgr": False,  # for debug 62
+                "locations": [],  
+                "intgr": False,  
             })
 
         day_re = regcheck.findall(r"\d{1,2}[~～]\d{1,2}月期|\d{1,2}月\d{1,2}日[~～]\d{1,2}月\d{1,2}日", input_text)
@@ -3771,8 +3651,8 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
                 "comment": f"{day_result} → {cor_day}",
                 "reason_type": "波ダッシュの修正",
                 "check_point": day_result,
-                "locations": [],  # 필요에 따라 입력
-                "intgr": False,  # for debug 62
+                "locations": [],  
+                "intgr": False,  
             })
 
         score_re = regcheck.findall(r"[\d.]+?[～~][\d.]+?[%％]", input_text)
@@ -3784,8 +3664,8 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
                 "comment": f"{score_result} → {cor_score}",
                 "reason_type": "波ダッシュの修正",
                 "check_point": score_result,
-                "locations": [],  # 필요에 따라 입력
-                "intgr": False,  # for debug 62
+                "locations": [],  
+                "intgr": False,  
             })
 
     half_re = regcheck.findall(r"\d{2,4}年第[1-4一二三四]四半期", input_text)
@@ -3809,8 +3689,8 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
             "comment": f"{half_result} → {cor_half}",
             "reason_type": "日付の修正",
             "check_point": half_result,
-            "locations": [],  # 필요에 따라 입력
-            "intgr": False,  # for debug 62
+            "locations": [],  
+            "intgr": False,  
         })
 
 
@@ -3818,7 +3698,6 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
     # tenbrend
     if isinstance(tenbrend, list):
         for item in tenbrend:
-            # 각 item이 딕셔너리인지 확인
             if not isinstance(item, dict):
                 continue
 
@@ -3880,23 +3759,14 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
     return corrections
 
 def extract_text(input_text, original_text):
-    # 정규 표현식 패턴: target 뒤에 （가 있는 경우와 없는 경우를 처리
-    pattern = rf"{original_text}（[^）]*）|{original_text}"  # target 뒤에 （가 있고, 그 뒤에 어떤 문자(닫는 괄호 제외)가 올 수 있으며, 마지막에 ）가 오는 경우를 매칭
+    pattern = rf"{original_text}（[^）]*）|{original_text}"
 
-    # 정규 표현식으로 매칭
     match = regcheck.search(pattern, input_text)
     
     if match:
-        return match.group(0)  # 매칭된 텍스트 반환
+        return match.group(0)
     else:
-        return None  # 매칭되지 않는 경우 None 반환
-
-# def clean_percent_prefix(value: str):
-#     # split으로 %, ％ 기준으로 나누고 첫 번째 부분 추출
-#     for symbol in ['%', '％']:
-#         if symbol in value:
-#             return value.split(symbol)[0].strip()
-#     return value.strip()  # %가 없으면 그대로 반환
+        return None
 
 def clean_percent_prefix(value: str):
     if not isinstance(value, str):
@@ -3908,7 +3778,6 @@ def clean_percent_prefix(value: str):
     return value.strip()
                 
 def extract_parts_with_direction(text: str):
-    # 쉼표・마침표・개행 모두 기준
     parts = re.split(r'[、。\n]', text)
     
     segments = []
@@ -3918,7 +3787,6 @@ def extract_parts_with_direction(text: str):
         if not part:
             continue
 
-        # %, ％, ポイント 기준 추출
         # pattern = r'[^％%ポイント上下、。\n]*[+-−]?\d+(?:\.\d+)?(?:％|%|ポイント)'
         pattern = r'[^％%、。\n]*[+-−]{0,2}\d+(?:\.\d+)?(?:％|%|ポイント)'
         segments.extend(re.findall(pattern, part))
@@ -3932,7 +3800,7 @@ def extract_parts_with_direction(text: str):
 def extract_corrections(corrected_text, input_text,pageNumber):
     corrections = []
     
-    # 여러 개의 correction span을 처리하는 정규식
+    # correction span
     pattern_alt = re.compile(
         r'<span.*?>(.*?)<\/span>\s*'
         r'\(<span>提示:\s*(.*?)\s*<s.*?>(.*?)<\/s>\s*→\s*(.*?)<\/span>\)',
@@ -3951,7 +3819,7 @@ def extract_corrections(corrected_text, input_text,pageNumber):
         # "%": "％"
         corrections.append({
             "page": pageNumber,
-            "original_text": clean_percent_prefix(reason),# half_and_full_process(reason,half_to_full_dict),  # 반각 카타카나를 전각으로 변환,  # 전체 입력값 当月のファンドの騰落率は+0.2%となりました。 上升
+            "original_text": clean_percent_prefix(reason),
             "comment": comment, # +0.2% → 0.85% , 上升 -> 下落
             "reason_type": reason_type, # ファンドの騰落率，B-xxx
 
@@ -3964,13 +3832,6 @@ def extract_corrections(corrected_text, input_text,pageNumber):
 
     
 def add_comments_to_pdf(pdf_bytes, corrections):
-    """
-    PDF 파일에서 틀린 부분을 찾아 코멘트를 추가합니다.
-
-    :param pdf_bytes: PDF 파일의 바이트 데이터
-    :param corrections: 수정 사항 리스트 (각 항목은 page, original_text, comment를 포함)
-    :return: 수정된 PDF 파일의 BytesIO 객체
-    """
     if not isinstance(pdf_bytes, bytes):
         raise ValueError("pdf_bytes must be a bytes object.")
     if not isinstance(corrections, list):
@@ -3980,7 +3841,6 @@ def add_comments_to_pdf(pdf_bytes, corrections):
             raise ValueError("Each correction must contain 'page', 'original_text', and 'comment' keys.")
 
     try:
-        # PDF 파일 열기 (BytesIO에서 직접 열기)
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception as e:
         raise ValueError(f"Invalid PDF file: {str(e)}")
@@ -3995,7 +3855,6 @@ def add_comments_to_pdf(pdf_bytes, corrections):
             continue
         colorSetFill= (1, 1, 0)
 
-        # 페이지 번호 유효성 검사
         if page_num < 0 or page_num >= len(doc):
             raise ValueError(f"Invalid page number: {page_num}")
 
@@ -4016,7 +3875,6 @@ def add_comments_to_pdf(pdf_bytes, corrections):
             })
             highlight.update()
 
-    # 수정된 PDF를 BytesIO에 저장
     output = io.BytesIO()
     doc.save(output)
     output.seek(0)
@@ -4026,36 +3884,23 @@ def add_comments_to_pdf(pdf_bytes, corrections):
 
 
 def add_comments_to_excel(excel_bytes, corrections):
-    """
-    엑셀 파일에서 틀린 부분을 찾아 코멘트를 추가합니다.
-
-    :param excel_bytes: 엑셀 파일의 바이트 데이터
-    :param corrections: 수정 사항 리스트 (각 항목은 sheet, cell, original_text, comment를 포함)
-    :return: 수정된 엑셀 파일의 BytesIO 객체
-    """
-    # 엑셀 파일 열기
     excel_file = io.BytesIO(excel_bytes)
-    workbook = load_workbook(excel_file)  # openpyxl로 엑셀 파일 로드
+    workbook = load_workbook(excel_file)  # openpyxl
 
-    # 각 시트에 대해 처리
     for sheet_name in workbook.sheetnames:
         sheet = workbook[sheet_name]
         for correction in corrections:
             if correction["sheet"] == sheet_name:
-                cell = correction["cell"]  # 예: "A1", "B2"
+                cell = correction["cell"]  # : "A1", "B2"
                 original_text = correction["original_text"]
                 comment = correction["comment"]
 
-                # 셀 값 확인
                 if sheet[cell].value and original_text in str(sheet[cell].value):
-                    # 빨간색으로 하이라이트
                     fill = PatternFill(start_color="FFFF0000", end_color="FFFF0000", fill_type="solid")
                     sheet[cell].fill = fill
 
-                    # 코멘트 추가
                     sheet[cell].comment = Comment(comment, "Author")
 
-    # 수정된 엑셀 파일 저장
     output = io.BytesIO()
     workbook.save(output)
     output.seek(0)
@@ -4079,10 +3924,6 @@ def normalize_text_for_search(text: str) -> str:
 
 #0617 debug
 def find_locations_in_pdf(pdf_bytes, corrections):
-    """
-    PDF에서 'original_text'를 검색하여 위치 정보를 corrections에 추가한다.
-    주석(하이라이트)은 생성하지 않고, 단순히 위치 정보만 찾아서 저장.
-    """
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception as e:
@@ -4120,7 +3961,6 @@ def find_locations_in_pdf(pdf_bytes, corrections):
                     "y1": rect.y1
                 })
 
-        # corrections[idx]에 locations 필드가 없으면 추가
         if "locations" not in corrections[idx]:
             corrections[idx]["locations"] = []
         corrections[idx]["locations"].extend(found_locations)
@@ -4138,10 +3978,9 @@ private_container = get_db_connection(PRIVATE_FUND_CONTAINER_NAME)
 
 
 def upload_to_azure_storage(pdf_bytes, file_name, fund_type):
-        """Azure Blob Storage에 PDF 업로드"""
+        """Azure Blob Storage PDF"""
         container_name = PUBLIC_FUND_CONTAINER_NAME if fund_type == 'public' else PRIVATE_FUND_CONTAINER_NAME
         
-        # 컨테이너 클라이언트 가져오기
         container_client = get_storage_container()
 
         try:
@@ -4155,7 +3994,7 @@ def upload_to_azure_storage(pdf_bytes, file_name, fund_type):
 
 
 def save_to_cosmos(file_name, response_data, link_url, fund_type, upload_type='', comment_type='',icon=''):
-    """응답 데이터를 Cosmos DB Save"""
+    """Cosmos DB Save"""
     # Cosmos DB 连接
     container = public_container if fund_type == 'public' else private_container
 
@@ -4166,11 +4005,11 @@ def save_to_cosmos(file_name, response_data, link_url, fund_type, upload_type=''
     #     file_id = file_name
 
     item = {
-        'id': file_name,  # 고유 ID로 파일 이름 사용
+        'id': file_name,
         'fileName': file_name,
-        'result': response_data,  # GPT 응답
-        'link': link_url,  # 파일 다운로드 링크 저장
-        'updateTime': datetime.utcnow().isoformat(),  # 현재 시간
+        'result': response_data,
+        'link': link_url,
+        'updateTime': datetime.utcnow().isoformat(),
         'status': "issue", 
         'readStatus': "unread",
         'icon': icon,
@@ -4192,7 +4031,6 @@ def save_to_cosmos(file_name, response_data, link_url, fund_type, upload_type=''
                 container.create_item(body=item)
                 logging.info(f"✅ Cosmos DB は保存されています: {file_name}")
         else:
-            # 기존 데이터가 존재하면 업데이트 (Upsert 사용 가능)
             existing_item[0].update(item)
             container.upsert_item(existing_item[0])
 
@@ -4227,7 +4065,7 @@ def write_upload_save():
         excel_base64 = data.get("excel_bytes", "")
         docx_base64 = data.get("docx_bytes", "")
         resutlmap = data.get("original_text", "")
-        fund_type = data.get("fund_type", "public")  # 기본값은 'public'
+        fund_type = data.get("fund_type", "public")  # 'public'
         file_name_decoding = data.get("file_name", "")
         upload_type = data.get("upload_type", "")
         comment_type = data.get("comment_type", "")
@@ -4337,14 +4175,7 @@ def write_upload_save():
         return jsonify({"success": False, "error": str(e)}), 500
 
 def apply_manual_corrections(text, correction_map):
-    """
-    특정 텍스트를 지정된 치환 텍스트로 변경
-    :param text: GPT가 교정한 텍스트
-    :param correction_map: { 기존 텍스트: 교정 텍스트 } 매핑
-    :return: 치환이 완료된 최종 텍스트
-    """
     if text in correction_map:
-        # GPT 교정 결과로 치환
         result = correction_map[text]
     # for old_text, new_text in correction_map.items():
     #     if old_text in text:
@@ -4352,16 +4183,11 @@ def apply_manual_corrections(text, correction_map):
     return result
 
 def gpt_correct_text(prompt):
-    """
-    GPT 모델을 사용하여 일본어 보고서 텍스트를 교정하고 corrected_map을 동적으로 업데이트합니다.
-    :param prompt: 원본 텍스트
-    :return: 교정된 텍스트 및 업데이트된 corrected_map
-    """
     token = token_cache.get_token()
     openai.api_key = token
     print("✅ Token Update SUCCESS")
     
-    if not prompt.strip():  # 빈 텍스트 방지
+    if not prompt.strip():
         return prompt
     hyogaiKanjiList = []
     
@@ -4398,26 +4224,26 @@ def gpt_correct_text(prompt):
         - For any 常用外漢字 identified, mark the character with (常用外漢字) next to it.
 
         1. 入力された全文（Report Content to Proofread）を **一文字ずつ** 走査してください（単語単位ではなく文字単位の照合です）。
-2. 各文字を、指定された hyogaiKanjiList の文字と **完全一致** で比較してください。
-3. 一致する文字がある場合、その文字を「常用外漢字」として検出してください。
-4. 一致しない文字は、常用漢字として無視してください（誤検出を避けるため）。
-5. 検出された常用外漢字は、以下のフォーマットで注釈をつけて表示してください。
+        2. 各文字を、指定された hyogaiKanjiList の文字と **完全一致** で比較してください。
+        3. 一致する文字がある場合、その文字を「常用外漢字」として検出してください。
+        4. 一致しない文字は、常用漢字として無視してください（誤検出を避けるため）。
+        5. 検出された常用外漢字は、以下のフォーマットで注釈をつけて表示してください。
 
----
+        ---
 
-【注釈フォーマット】
+        【注釈フォーマット】
 
-次のように、元の漢字に <s> タグと背景色を付け、読みまたは代替語を赤字で示し、その後に理由を添えてください。
+        次のように、元の漢字に <s> タグと背景色を付け、読みまたは代替語を赤字で示し、その後に理由を添えてください。
 
-例:
-<span style="color:red;">ぜい</span> (<span>修正理由: 常用外漢字の使用 <s style="background:yellow;color:red">脆</s> → ぜい</span>)
+        例:
+        <span style="color:red;">ぜい</span> (<span>修正理由: 常用外漢字の使用 <s style="background:yellow;color:red">脆</s> → ぜい</span>)
 
----
+        ---
 
-【Report Content to Proofread】:
-{corrected_text}
+        【Report Content to Proofread】:
+        {corrected_text}
 
-**1: Typographical Errors (脱字・誤字) Detection**
+        **1: Typographical Errors (脱字・誤字) Detection**
             -Detect any missing characters (脱字) or misused characters (誤字) that cause unnatural expressions or misinterpretation.
 
             **Proofreading Requirements**:
@@ -4745,84 +4571,67 @@ def gpt_correct_text(prompt):
         ],
         max_tokens=MAX_TOKENS,
         temperature=TEMPERATURE,
-        seed=SEED  # 재현 가능한 결과를 위해 seed 설정
+        seed=SEED  #seed
     )
 
-    
-    # 응답 처리
     try:
         answer = response['choices'][0]['message']['content']
         corrected_map = parse_gpt_response(answer)
         
-        # 전체 교정문 생성
         full_corrected = prompt
         for k, v in corrected_map.items():
             full_corrected = full_corrected.replace(k, v)
 
-        # 동적 변경 사항 추가
         dynamic_corrections = detect_corrections(prompt, full_corrected)
         corrected_map.update(dynamic_corrections)
 
         return {k: v for k, v in corrected_map.items() if k and v and k != v}
 
     except Exception as e:
-        print(f"처리 실패: {e}")
+        print(f"req error: {e}")
         return {}
 
 def correct_text_box_in_excel(input_bytes,corrected_map):
-    """
-    :param input_bytes: 업로드된 엑셀(xlsx) 바이너리
-    :param corrected_map: { 기존텍스트: 교정텍스트 } 형태의 매핑 (예: GPT 결과)
-    :return: 수정된 엑셀 바이너리(bytes)
-    """
-    # 1) 압축 해제용 임시 폴더(또는 메모리상 in-memory zip)
+    # 1)  in-memory zip
     in_memory_zip = zipfile.ZipFile(io.BytesIO(input_bytes), 'r')
     
-    # 새 ZIP(수정본)을 만들기 위한 BytesIO
+    # BytesIO
     output_buffer = io.BytesIO()
     new_zip = zipfile.ZipFile(output_buffer, 'w', zipfile.ZIP_DEFLATED)
 
-    # 2) 모든 파일 반복
     for item in in_memory_zip.infolist():
         file_data = in_memory_zip.read(item.filename)
 
-        # 3) drawingN.xml인지 체크
+        # 3) drawingN.xml
         if item.filename.startswith("xl/drawings/drawing") and item.filename.endswith(".xml"):
-            # 도형/텍스트박스 XML일 가능성이 있음
             try:
                 tree = ET.fromstring(file_data)
-                # 네임스페이스가 있는 경우 추출
                 ns = {'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'}
 
-                # 4) 모든 <a:t> 태그 찾기
+                # 4) find <a:t> tag 
                 for t_element in tree.findall(".//a:t", ns):
                     original_text = t_element.text
                 #----------------------------------------------------------------
-                    # if original_text:  # None 체크
-                    #     original_text_gpt = gpt_correct_text(original_text)  # GPT를 사용하여 텍스트 교정
+                    # if original_text:  # None 
+                    #     original_text_gpt = gpt_correct_text(original_text)
 
-                    #     if original_text_gpt and original_text_gpt.strip() in corrected_map:  # 변환 가능 여부 확인
-                    #         t_element.text = corrected_map[original_text_gpt.strip()]  # 변환된 값으로 변경
+                    #     if original_text_gpt and original_text_gpt.strip() in corrected_map:
+                    #         t_element.text = corrected_map[original_text_gpt.strip()]
                 #----------------------------------------------------------------
                     # resultMap = gpt_correct_text(original_text)
 
                     if original_text in corrected_map:
-                        # GPT 교정 결과로 치환
                         t_element.text = corrected_map[original_text]
                 #----------------------------------------------------------------
 
-                # 수정된 내용을 다시 XML로 직렬화
                 file_data = ET.tostring(tree, encoding='utf-8', standalone=False)
                 
             except Exception as e:
                 print(f"Warning: Parsing {item.filename} failed - {e}")
 
-        # 5) 새로운 zip에 추가
         new_zip.writestr(item, file_data)
 
-    # 기존 zip 마무리
     in_memory_zip.close()
-    # 새 zip 마무리
     new_zip.close()
     output_buffer.seek(0)
     return output_buffer.getvalue()
@@ -4830,14 +4639,9 @@ def correct_text_box_in_excel(input_bytes,corrected_map):
 # Excel read -for debug
 @app.route("/api/excel_upload", methods=["POST"])
 def excel_upload():
-    file = request.files["file"]  # XLSX 업로드
+    file = request.files["file"]  # XLSX
     original_bytes = file.read()
 
-    # 1) drawingN.xml에서 텍스트 추출 → GPT 교정 로직
-    #   (간단히 "전체 텍스트를 하나로 모아서 GPT에 보낸다"거나,
-    #    "문단별로 나눈다"등등 필요에 따라 구현)
-
-    # 예: 특정 텍스트를 "수정했습니다."로 치환
     corrected_map = {
         "地政学リスク": "地政学的リスク"
     }
@@ -4896,7 +4700,7 @@ def prompt_upload():
             ],
             max_tokens=MAX_TOKENS,
             temperature=TEMPERATURE,
-            seed=SEED  # 재현 가능한 결과를 위해 seed 설정
+            seed=SEED  # seed
         )
         answer = response['choices'][0]['message']['content'].strip()
         re_answer = remove_code_blocks(answer)
@@ -4904,9 +4708,9 @@ def prompt_upload():
         # return JSON
         return jsonify({
             "success": True,
-            "original_text": prompt,  # 입력된 원본 텍스트
-            "corrected_text": re_answer,  # GPT 모델의 처리 결과
-            # "corrections": corrections  # 틀린 부분과 코멘트
+            "original_text": prompt,
+            "corrected_text": re_answer,
+            # "corrections": corrections
         })
 
     except ValueError as e:
@@ -4919,7 +4723,6 @@ def prompt_upload():
 @app.route('/api/auto_save_cosmos', methods=['POST'])
 def auto_save_cosmos():
     try:
-        # 요청 데이터 파싱
         data = request.json
         response_data = data['result']
         link_url = data['link']
@@ -4929,19 +4732,16 @@ def auto_save_cosmos():
         # URL Decoding
         file_name = urllib.parse.unquote(file_name_decoding)
 
-        # Cosmos DB 컨테이너 클라이언트 가져오기)
         container = get_db_connection(container_name)
 
-        # 저장할 아이템 생성
         item = {
-            'id': file_name,  # 파일명을 고유 ID로 사용
+            'id': file_name,
             'fileName': file_name,
             'result': response_data,
             'link': link_url,
-            'updateTime': datetime.utcnow().isoformat(),  # 현재 시간
+            'updateTime': datetime.utcnow().isoformat(),
         }
 
-        # 기존 항목 존재 여부 확인
         existing_item = list(container.query_items(
             query="SELECT * FROM c WHERE c.id = @id",
             parameters=[{"name": "@id", "value": file_name}],
@@ -4949,13 +4749,11 @@ def auto_save_cosmos():
         ))
 
         if not existing_item:
-            # 새 항목 생성
             container.create_item(body=item)
             logging.info(f"✅ Cosmos DB Update Success: {file_name}")
         else:
-            # 기존 항목 업데이트
             existing_id = existing_item[0]['id']
-            item['id'] = existing_id  # 기존 ID 유지
+            item['id'] = existing_id
             container.replace_item(item=existing_item[0], body=item)
             logging.info(f"🔄 Cosmos DB update success: {file_name}")
 
@@ -4972,23 +4770,18 @@ def auto_save_cosmos():
 @app.route('/api/auto_save_blob', methods=['POST'])
 def auto_save_blob():
     try:
-        # 파일 가져오기
         if 'file' not in request.files:
             return jsonify({"success": False, "message": "no find file."}), 400
 
         file = request.files['file']
         blob_name = file.filename
         
-        # 컨테이너 클라이언트 가져오기
         container_client = get_storage_container()
 
-        # Blob(파일) 클라이언트 생성
         blob_client = container_client.get_blob_client(blob_name)
 
-        # PDF 파일 업로드
         blob_client.upload_blob(file, overwrite=True)
 
-        # 업로드된 파일의 URL 반환
         file_url = blob_client.url
         logging.info(f"✅ Azure Blob Storage Update Success: {blob_name}")
 
@@ -5001,12 +4794,10 @@ def auto_save_blob():
 #----auto app save log 
 @app.route('/api/auto_save_log_cosmos', methods=['POST','PUT'])
 def auto_save_log_cosmos():
-    """로그를 Cosmos DB Save하는 API"""
+    """log Cosmos DB Save to API"""
     try:
-        # Cosmos DB 컨테이너 클라이언트 가져오기
         container = get_db_connection(APPLOG_CONTAINER_NAME)
 
-        # 요청 본문에서 로그 데이터 가져오기
         log_data = request.json
         log_by_date = log_data.get("logs", {})
 
@@ -5019,19 +4810,17 @@ def auto_save_log_cosmos():
             ))
 
             if existing_logs:
-                # 기존 로그 문서 업데이트 (logEntries 리스트에 추가)
                 existing_log = existing_logs[0]
                 existing_log["logEntries"].extend(logs)
-                existing_log["timestamp"] = datetime.utcnow().isoformat(),  # 현재 시간
+                existing_log["timestamp"] = datetime.utcnow().isoformat(), 
                 #update
                 container.replace_item(item=existing_log["id"], body=existing_log)
                 logging.info(f"🔄 SUCCESS: Update Log Success: {log_id}")
             else:
-                # 새로운 로그 문서 생성
                 log_data = {
-                    "id": log_id,  # YYYYMMDD 형식의 ID
-                    "logEntries": logs,  # 로그 리스트
-                    "timestamp": datetime.utcnow().isoformat(),  # 현재 시간
+                    "id": log_id,  # YYYYMMDD format ID
+                    "logEntries": logs,
+                    "timestamp": datetime.utcnow().isoformat(),
                 }
                 #create
                 container.create_item(body=log_data)
@@ -5049,7 +4838,6 @@ def auto_save_log_cosmos():
 @app.route('/api/integeration_ruru_cosmos', methods=['POST'])
 def integeration_ruru_cosmos():
     try:
-        # 요청 데이터 파싱
         data = request.json
 
         base_month = data['Base_Month']
@@ -5069,14 +4857,11 @@ def integeration_ruru_cosmos():
         id = data['id']
         No = data['No']
 
-        # Cosmos DB 컨테이너 클라이언트 가져오기
         container = get_db_connection(INTEGERATION_RURU_CONTAINER_NAME)
 
-        # 중복 데이터 확인
         query = f"SELECT * FROM c WHERE c.Fcode = '{data['Fcode']}' AND c.Base_Month = '{data['Base_Month']}' AND c.fundType = '{data['fundType']}'"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
 
-        # Cosmos DB Save할 아이템 생성
         common_item = {
             "id": id,
             "No": No,
@@ -5092,7 +4877,7 @@ def integeration_ruru_cosmos():
             "flag": flag,
             "Target_Type": target_type,
             "Target_Condition": target_condition,
-            "updateTime": datetime.utcnow().isoformat(),  # 현재 시간
+            "updateTime": datetime.utcnow().isoformat(),  
         }
 
         if flag == 'close':
@@ -5103,9 +4888,7 @@ def integeration_ruru_cosmos():
 
         item = common_item
 
-        # 중복 데이터가 있으면 업데이트, 없으면 삽입
         if items:
-            # item["_etag"] = items[0]["_etag"]  # 기존 데이터의 etag를 사용하여 업데이트
             # container.upsert_item(item)
             items[0].update(item)
             container.upsert_item(items[0])
@@ -5117,7 +4900,6 @@ def integeration_ruru_cosmos():
             return jsonify({"success": True, "message": "Data inserted successfully."}), 200
 
         # if items:
-        #     # 기존 항목 ID 유지해서 덮어쓰기
         #     item["id"] = items[0]["id"]
         #     container.replace_item(item=items[0], body=item)
         #     logging.info("✅ Data updated in Cosmos DB successfully.")
@@ -5128,7 +4910,7 @@ def integeration_ruru_cosmos():
         #     return jsonify({"success": True, "message": "Data inserted successfully."}), 200
 
     except Exception as e:
-        logging.error(f"❌ Cosmos DB 저장 오류: {e}")
+        logging.error(f"❌ Cosmos DB save error: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
 @app.route('/api/integeration_ruru_cosmos', methods=['GET'])
@@ -5136,14 +4918,12 @@ def get_integeration_ruru_cosmos():
     # Cosmos DB 连接
     container = get_db_connection(INTEGERATION_RURU_CONTAINER_NAME)
 
-    # 요청 파라미터 읽기
     flag = request.args.get("flag")
     base_month = request.args.get("Base_Month")
 
     query = "SELECT * FROM c"
     parameters = []
 
-    # 조건 추가
     if flag and base_month:
         query += " WHERE c.flag = @flag AND c.Base_Month = @base_month"
         parameters = [
@@ -5221,7 +5001,7 @@ def common_ruru_text(text):
         # 市況型: 株式市場 + TOPIX
         pattern_market = r"TOPIX（東証株価指数）[^。]*"
 
-        # --- ファンド型 처리 ---
+        # --- ファンド型 ---
         fund_sentences = re.findall(pattern_fund, text)
         for sentence in fund_sentences:
             for m in re.finditer(r"[^、。]+?(％|ポイント)", sentence):
@@ -5230,7 +5010,7 @@ def common_ruru_text(text):
                     seen.add(extracted)
                     corrections.append({"extract": extracted})
 
-        # --- 市況型 처리 ---
+        # --- 市況型  ---
         market_sentences = re.findall(pattern_market, text)
         for sentence in market_sentences:
             for m in re.finditer(r"[^、。]+?(％|ポイント)", sentence):
@@ -5317,28 +5097,23 @@ def common_ruru():
 @app.route('/api/ruru_search_db', methods=['POST'])
 def ruru_search_db():
     try:
-        # 요청 데이터 파싱
         data = request.json
 
         fcode = data.get('fcode')
         base_month = data.get('Base_Month')
-        fund_type = data.get('fundType', 'private')  # 기본값으로 'private' 설정
+        fund_type = data.get('fundType', 'private')
 
-        # Cosmos DB 컨테이너 클라이언트 가져오기)
         container = get_db_connection(INTEGERATION_RURU_CONTAINER_NAME)
 
-        # DB에서 일치하는 데이터 찾기
         query = f"SELECT * FROM c WHERE c.Fcode = '{fcode}' AND c.Base_Month = '{base_month}' AND c.fundType = '{fund_type}'"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
 
         if items:
-            # 일치하는 데이터의 result 출력
             # results = [{"id": item["id"], "result": item["result"],"Org_Text":item["Org_Text"],"Org_Type":item["Org_Type"],"Target_Condition":item["Target_Condition"]} for item in items]
             results = [item if item.get("flag") else {"id": item["id"], "result": item["result"],"Org_Text":item["Org_Text"],"Org_Type":item["Org_Type"],"Target_Condition":item["Target_Condition"]} for item in items]
             return jsonify({"success": True, "data": results}), 200
         else:
             return jsonify({"success": False, "message": "No matching data found in DB."}), 200
-            #Todo need add the common ruru  D:\CommentCheck\702\整合性共通ルール.xlsx
 
     except Exception as e:
         logging.error(f"❌ Error occurred while searching DB: {e}")
@@ -5347,15 +5122,12 @@ def ruru_search_db():
 @app.route('/api/refer_operate', methods=['GET'])
 def get_rule():
     try:
-        # 요청 데이터 파싱
         data = request.args
         flag = data.get('flag', "")
-        fund_type = data.get('fundType', 'private')  # 기본값으로 'private' 설정
+        fund_type = data.get('fundType', 'private')
 
-        # Cosmos DB 컨테이너 클라이언트 가져오기
         container = get_db_connection(INTEGERATION_RURU_CONTAINER_NAME)
 
-        # DB에서 일치하는 데이터 찾기
         query = f"SELECT * FROM c WHERE c.flag = '{flag}' AND c.fundType = '{fund_type}'"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
 
@@ -5469,7 +5241,7 @@ async def get_original(input_data, org_text, file_name="", target_text=""):
         messages=question,
         max_tokens=MAX_TOKENS,
         temperature=TEMPERATURE,
-        seed=SEED  # 재현 가능한 결과를 위해 seed 설정
+        seed=SEED  # seed
     )
     answer = response['choices'][0]['message']['content'].strip().replace("`", "").replace("json", "", 1)
 
@@ -5575,7 +5347,7 @@ def save_local_link():
 @app.route('/api/log_operate')
 def get_log():
     try:
-        # 1) page, size 파라미터 읽기 (기본값 page=1, size=15)
+        # 1)  page=1, size=15
         page = int(request.args.get('page', 1))
         size = int(request.args.get('size', 15))
         file_name = request.args.get('fileName', "")
@@ -5598,14 +5370,12 @@ def get_log():
                 "total": count_result
 
             }), 200
-        # 2) 전체 카운트 (페이지네이션 위해)
         count_query = "SELECT VALUE COUNT(1) FROM c"
         total_count = list(log_controller.query_items(
             query=count_query,
             enable_cross_partition_query=True
         ))[0]
 
-        # 3) 페이지네이션 쿼리 (ORDER BY DESC, OFFSET, LIMIT)
         query = f"""
                 SELECT * FROM c
                 ORDER BY c.created_at DESC
@@ -5708,7 +5478,7 @@ def integrate_enhance():
     try:
         token = token_cache.get_token()
         openai.api_key = token
-        print("✅ 토큰 업데이트 완료")
+        print("✅ Token Update Done")
 
         data = request.json
         _content = data.get("input", "")
@@ -5728,27 +5498,27 @@ def integrate_enhance():
                 return jsonify({
                     "success": True,
                     "corrections": [{
-                        "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
+                        "page": pageNumber,
                         "original_text": "リスク抑制戦略の状況",
                         "check_point": "リスク抑制戦略の状況",
                         "comment": f"リスク抑制戦略の状況 → ",
-                        "reason_type":"整合性", # for debug 62
-                        "locations": [{"x0": 0, "x1": 0, "y0": 0, "y1": 0}],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
-                        "intgr": True, # for debug 62
-                    }]  # 틀린 부분과 코멘트
+                        "reason_type":"整合性", 
+                        "locations": [{"x0": 0, "x1": 0, "y0": 0, "y1": 0}],
+                        "intgr": True, 
+                    }]
                 })
             else:
                 return jsonify({
                     "success": True,
                     "corrections": [{
-                        "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
+                        "page": pageNumber,
                         "original_text": "リスク抑制戦略の状況",
                         "check_point": "リスク抑制戦略の状況",
                         "comment": f"リスク抑制戦略の状況 → ",
-                        "reason_type": "リスク抑制戦略の状況が存在していません。",  # for debug 62
-                        "locations": [{"x0": 0, "x1": 0, "y0": 0, "y1": 0}],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
-                        "intgr": True,  # for debug 62
-                    }]  # 틀린 부분과 코멘트
+                        "reason_type": "リスク抑制戦略の状況が存在していません。",  
+                        "locations": [{"x0": 0, "x1": 0, "y0": 0, "y1": 0}],
+                        "intgr": True,  
+                    }]
                 })
 
         elif org_text == "銘柄名1～10":
@@ -5770,7 +5540,7 @@ def integrate_enhance():
                 return jsonify({
                     "success": True,
                     "answer": __answer,
-                    "corrections": []  # 틀린 부분과 코멘트
+                    "corrections": []
                 })
 
         pdf_base64 = data.get("pdf_bytes", "")
@@ -5828,7 +5598,7 @@ def integrate_enhance():
             messages=question,
             max_tokens=MAX_TOKENS,
             temperature=TEMPERATURE,
-            seed=SEED  # 재현 가능한 결과를 위해 seed 설정
+            seed=SEED  # seed
         )
         answer = response['choices'][0]['message']['content'].strip()
         if answer:
@@ -5849,7 +5619,7 @@ def integrate_enhance():
                 messages=_question,
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE,
-                seed=SEED  # 재현 가능한 결과를 위해 seed 설정
+                seed=SEED  # seed
             )
             _answer = _response['choices'][0]['message']['content'].strip().replace("`", "").replace("json", "", 1)
             parsed_data = ast.literal_eval(_answer)
@@ -5859,29 +5629,27 @@ def integrate_enhance():
                     error_data = once.get("original", "")
                     reason = once.get("reason", "")
                     corrections.append({
-                        "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
+                        "page": pageNumber,
                         "original_text": get_src(error_data, _content).replace("。○","").replace("。◯","").strip().rsplit('\n', 1)[0],
                         "check_point": content,
                         "comment": f"{error_data} → {reason}", #
-                        "reason_type":reason, # for debug 62
-                        "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
-                        "intgr": True, # for debug 62
+                        "reason_type":reason, 
+                        "locations": [],
+                        "intgr": True, 
                     })
             else:
                 corrections.append({
-                    "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
+                    "page": pageNumber,
                     "original_text": get_src(content, _content).replace("。○","").replace("。◯","").strip().rsplit('\n', 1)[0],
                     "check_point": content,
                     "comment": f"{content} → ",
-                    "reason_type": "整合性",  # for debug 62
-                    "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
-                    "intgr": True,  # for debug 66
+                    "reason_type": "整合性",  
+                    "locations": [],
+                    "intgr": True,
                 })
 
-            #5/8 position check
             try:
                 pdf_bytes = base64.b64decode(pdf_base64)
-                # 위치 정보만 찾아 corrections에 저장
                 find_locations_in_pdf(pdf_bytes, corrections)
                 
 
@@ -5895,20 +5663,20 @@ def integrate_enhance():
                 "answer": __answer,
                 "first_answer": answer,
                 "input_data": input_data,
-                "corrections": corrections  # 틀린 부분과 코멘트
+                "corrections": corrections
             })
         else:
             return jsonify({
                 "success": True,
                 "corrections": [{
-                    "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
+                    "page": pageNumber,
                     "original_text": content,
                     "check_point": content,
                     "comment": f"{content} → ",
-                    "reason_type":"整合性", # for debug 62
-                    "locations": [{"x0": 0, "x1": 0, "y0": 0, "y1": 0}],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
-                    "intgr": True, # for debug 62
-                }]  # 틀린 부분과 코멘트
+                    "reason_type":"整合性", 
+                    "locations": [{"x0": 0, "x1": 0, "y0": 0, "y1": 0}],
+                    "intgr": True, 
+                }]  
             })
 
     except Exception as e:
@@ -5924,10 +5692,8 @@ def extract_or_return(sentence):
 
     match = re.search(pattern, sentence)
 
-    # 추출 결과 중 실제 값이 있는 항목만 모음
     extracted = [v for v in match.groupdict().values() if v]
 
-    # 값이 하나라도 있으면 추출된 것들 반환, 없으면 원문 전체 반환
     return extracted if extracted else [sentence]
 
 @app.route('/api/ruru_ask_gpt', methods=['POST'])
@@ -5971,7 +5737,7 @@ def ruru_ask_gpt():
                 messages=question,
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE,
-                seed=SEED  # 재현 가능한 결과를 위해 seed 설정
+                seed=SEED  # seed
             )
             _answer = response['choices'][0]['message']['content'].strip().strip().replace("`", "").replace("json", "", 1)
             _parsed_data = ast.literal_eval(_answer)
@@ -5983,18 +5749,18 @@ def ruru_ask_gpt():
             for re_result in matches_list:
                                 
                 corrections.append({
-                        "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
+                        "page": pageNumber,
                         "original_text": re_result,
                         "check_point": re_result,
                         "comment": f"{re_result} → ", # +0.2% → 0.85% f"{reason} → {corrected}"
-                        "reason_type": "整合性",  # for debug 62
-                        "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
-                        "intgr": True,  # for debug 66
+                        "reason_type": "整合性",  
+                        "locations": [],
+                        "intgr": True,
                     })
                 
             try:
                 pdf_bytes = base64.b64decode(pdf_base64)
-                # 위치 정보만 찾아 corrections에 저장
+                
                 find_locations_in_pdf(pdf_bytes, corrections)
                 
             except ValueError as e:
@@ -6006,73 +5772,6 @@ def ruru_ask_gpt():
             if not input:
                 return jsonify({"success": False, "error": "No input provided"}), 400
             
-            # result_input = extract_or_return(input)
-
-            # prompt_result = """
-            # You are a professional proofreader specializing in Japanese financial reports.
-            # Your task is to perform a **semantic fact-check** of the following financial summary text.
-
-            # ---
-
-            # ### 🎯 Your Goal:
-            # Compare the input financial text (`{result_input}`) with the structured financial result data (`{result}`), and identify any **factually or numerically incorrect phrases**.
-
-            # ---
-
-            # ### ✅ Instructions:
-
-            # 1. Ensure all financial expressions in `{result_input}` match the factual meaning of `{result}`.
-            # 2. Focus only on **meaning**, not wording or phrasing.  
-            # 3. Specific discrepancies to catch:
-            #     - Incorrect comparisons to benchmarks (e.g., saying "上回った" when it should be "下回った").
-            #     - Misreported figures for:
-            #         - 騰落率 (performance %)
-            #         - 参考指数の騰落率 (benchmark performance)
-            #         - ポイント (point)
-            #         - その他の定量的評価 (any other quantitative claim)
-            #     - Month, fund name, or time-frame mismatches.
-            # ---
-
-            # ### ✅ Output Format for Errors:
-            # Use this format **only when there is a mismatch**:
-
-            
-            # "出力は以下のJSON形式でお願いします:",
-            # "- {'target': '[抽出されたテキスト:]'}",
-            # "- 類似したものがない場合は、空の文字列を返してください",
-            # "- 類似したものが存在する場合は、最も類似度の高いものを抽出してください",
-
-            
-            # Rules:
-            # ✅ Do not highlight phrases that are semantically consistent, even if text is partially different.
-            # ✅ If the same value or claim is correctly mentioned elsewhere in {result_input}, do not flag it again.
-            # ✅ If everything is correct, return nothing (empty output).
-            # ✅ Use {OrgType} only for contextual understanding, not for decision-making.
-
-            # Input:
-            #     Input Text:
-            #     {result_input}
-
-            #     Original Type:
-            #     {OrgType}
-
-            #     Result Data:
-            #     {result}
-            # """  
-            # ChatCompletion Call
-            # response = openai.ChatCompletion.create(
-            #     deployment_id=deployment_id,  # Deploy Name
-            #     messages=[
-            #         {"role": "system", "content": "You are a professional Japanese text proofreading assistant."},
-            #         {"role": "user", "content": prompt_result},
-            #     ],
-            #     max_tokens=MAX_TOKENS,
-            #     temperature=TEMPERATURE,
-            #     seed=SEED  # 재현 가능한 결과를 위해 seed 설정정
-            # # )
-            # answer = response['choices'][0]['message']['content'].strip()
-            # re_answer = remove_code_blocks(answer)
-
             # add the write logic
             dt = [
                 "文章から原文に類似したテキストを抽出してください",
@@ -6106,7 +5805,7 @@ def ruru_ask_gpt():
                 messages=question,
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE,
-                seed=SEED  # 재현 가능한 결과를 위해 seed 설정
+                seed=SEED  # seed
             )
             _answer = response['choices'][0]['message']['content'].strip().strip().replace("`", "").replace("json", "", 1)
             _parsed_data = ast.literal_eval(_answer)
@@ -6116,35 +5815,34 @@ def ruru_ask_gpt():
                     error_data = once.get("original", "")
                     reason = once.get("reason", "")
                     corrections.append({
-                        "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
+                        "page": pageNumber,
                         "original_text": clean_percent_prefix(error_data),
                         "check_point": input,
                         "comment": f"{error_data} → {reason}", 
-                        "reason_type":reason, # for debug 62
-                        "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
-                        "intgr": True, # for debug 62
+                        "reason_type":reason, 
+                        "locations": [],
+                        "intgr": True, 
                     })
             else:
                 segments = []
                 segments= extract_parts_with_direction(input)
-                # corrections 리스트 초기화
                 corrections = []
                 for part in segments:
-                    if part:  # 빈값이 아닌 경우만 추가
+                    if part:
                         corrections.append({
-                            "page": pageNumber,  # 페이지 번호 (0부터 시작, 필요 시 수정)
+                            "page": pageNumber,
                             "original_text": part.strip(),
                             "check_point": input,
                             "comment": f"{part.strip()} → ",
-                            "reason_type": "整合性",  # for debug 62
-                            "locations": [],  # 뒤에서 실제 PDF 위치(좌표)를 저장할 필드
-                            "intgr": True,  # for debug 66
+                            "reason_type": "整合性",  
+                            "locations": [],
+                            "intgr": True,
                         })
                 
             if pdf_base64:
                 try:
                     pdf_bytes = base64.b64decode(pdf_base64)
-                    # 위치 정보만 찾아 corrections에 저장
+                    
                     find_locations_in_pdf(pdf_bytes, corrections)
                     
                 except ValueError as e:
@@ -6170,7 +5868,7 @@ def ruru_ask_gpt():
                 
             try:
                 pdf_bytes = base64.b64decode(pdf_base64)
-                # 위치 정보만 찾아 corrections에 저장
+                
                 find_locations_in_pdf(pdf_bytes, corrections)
                 
             except ValueError as e:
@@ -6181,7 +5879,7 @@ def ruru_ask_gpt():
         # return JSON
         return jsonify({
             "success": True,
-            "corrections": corrections,  # 틀린 부분과 코멘트
+            "corrections": corrections,  
             "input": input, 
             "answer": _parsed_data, 
         })
@@ -6194,7 +5892,6 @@ def extract_text_from_base64_pdf(pdf_base64: bytes) -> list:
     # Base64 -> PDF bytes
     # pdf_bytes = base64.b64decode(pdf_base64)
 
-    # 메모리에서 PDF 열기
     pdf_document = fitz.open(stream=pdf_base64, filetype="pdf")
 
     text_all = []
@@ -6225,7 +5922,6 @@ def extract_text_from_base64_pdf(pdf_base64: bytes) -> list:
 
         # page_list.append(("".join(text_all), page_num))
 
-        # ✅ 한 페이지 단위로만 저장
         page_list.append((page_text, page_num))
             
     return page_list
@@ -6245,7 +5941,7 @@ half_to_full_map = {
     '+': '＋'
 }
 def convert_halfwidth_to_fullwidth_safely(text):
-    # 이미 변환된 부분 (修正理由 포함) 보존
+    # (修正理由)
     protected_blocks = {}
     
     def protect_span(match):
@@ -6253,10 +5949,8 @@ def convert_halfwidth_to_fullwidth_safely(text):
         protected_blocks[key] = match.group(0)
         return key
 
-    # ① 보호할 블록 감추기
     text = re.sub(r'<span[^>]*?>修正理由:.*?</span>\)', protect_span, text)
 
-    # ② 남은 텍스트만 변환
     def replace_half(match):
         char = match.group(0)
         full = half_to_full_map[char]
@@ -6269,7 +5963,6 @@ def convert_halfwidth_to_fullwidth_safely(text):
     pattern = re.compile('|'.join(map(re.escape, half_to_full_map.keys())))
     text = pattern.sub(replace_half, text)
 
-    # ③ 보호한 블록 되돌리기
     for key, val in protected_blocks.items():
         text = text.replace(key, val)
 
@@ -6312,7 +6005,7 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber, re_list, rule_list,
         ],
         max_tokens=MAX_TOKENS,
         temperature=TEMPERATURE,
-        seed=SEED  # 재현 가능한 결과를 위해 seed 설정정
+        seed=SEED  # seed
     )
     answer = response['choices'][0]['message']['content'].strip().replace("`", "").replace("json", "", 1).replace("\n", "")
     parsed_data = ast.literal_eval(answer)
@@ -6329,12 +6022,12 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber, re_list, rule_list,
                 _original_text = data["original"]
             combine_corrections.append({
                 "page": pageNumber,
-                "original_text": _original_text,  # 전체 입력
+                "original_text": _original_text,
                 "comment": f'{_original_text} → {data["correct"]}',
                 "reason_type": data["reason"],
                 "check_point": _original_text,
                 "locations": [],
-                "intgr": False,  # for debug 62
+                "intgr": False,  
             })
             src_corrections.append(f'{data["original"]} → {data["correct"]}')
 
@@ -6342,12 +6035,12 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber, re_list, rule_list,
         for rule_result in rule_list:
             combine_corrections.append({
                 "page": pageNumber,
-                "original_text": str(rule_result),  # 전체 입력
+                "original_text": str(rule_result),  
                 "comment": f"{str(rule_result)} → 当月の投資配分",
                 "reason_type": "誤字脱字",
                 "check_point": str(rule_result),
                 "locations": [],
-                "intgr": False,  # for debug 62
+                "intgr": False,  
             })
 
     if re_list:
@@ -6355,48 +6048,48 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber, re_list, rule_list,
             correct = get_num(re_result)
             combine_corrections.append({
                 "page": pageNumber,
-                "original_text": str(re_result),  # 전체 입력
+                "original_text": str(re_result),  
                 "comment": correct,
                 "reason_type": "数値千位逗号分隔修正",
                 "check_point": str(re_result),
                 "locations": [],
-                "intgr": False,  # for debug 62
+                "intgr": False,  
             })
 
     if rule1_list:
         for rule1_result in rule1_list:
             combine_corrections.append({
                 "page": pageNumber,
-                "original_text": rule1_result,  # 전체 입력
+                "original_text": rule1_result,  
                 "comment": f"{rule1_result} →  ",
                 "reason_type": "削除",
                 "check_point": rule1_result,
                 "locations": [],
-                "intgr": False,  # for debug 62
+                "intgr": False,  
             })
 
     if rule3_list:
         for rule3_result in rule3_list:
             combine_corrections.append({
                 "page": pageNumber,
-                "original_text": rule3_result,  # 전체 입력
+                "original_text": rule3_result,  
                 "comment": f"{rule3_result} → {rule3_result[1:]}",
                 "reason_type": "削除",
                 "check_point": rule3_result,
                 "locations": [],
-                "intgr": False,  # for debug 62
+                "intgr": False,  
             })
 
     # if word_list:
     #     for word_result in word_list:
     #         combine_corrections.append({
     #             "page": pageNumber,
-    #             "original_text": word_result,  # 전체 입력
+    #             "original_text": word_result,  
     #             "comment": f"{word_result} → 値上がりし",
     #             "reason_type": "動詞固定用法",
     #             "check_point": word_result,
     #             "locations": [],
-    #             "intgr": False,  # for debug 62
+    #             "intgr": False,  
     #         })
     
     # され、下落し
@@ -6404,18 +6097,18 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber, re_list, rule_list,
         for symbol_result in symbol_list:
             combine_corrections.append({
                 "page": pageNumber,
-                "original_text": symbol_result,  # 전체 입력
+                "original_text": symbol_result,  
                 "comment": f"{symbol_result} → され下落し",
                 "reason_type": "読点を削除する",
                 "check_point": symbol_result,
                 "locations": [],
-                "intgr": False,  # for debug 62
+                "intgr": False,  
             })
 
     if pdf_base64:
         try:
             pdf_bytes = base64.b64decode(pdf_base64)
-            # 위치 정보만 찾아 corrections에 저장
+            
             find_locations_in_pdf(pdf_bytes, combine_corrections)
             for idx, _comment in enumerate(src_corrections):
                 combine_corrections[idx]["comment"] = _comment
@@ -6428,7 +6121,7 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber, re_list, rule_list,
     # return JSON
     return jsonify({
         "success": True,
-        "corrections": combine_corrections,  # 틀린 부분과 코멘트
+        "corrections": combine_corrections,  
         "parsed_data": parsed_data
     })
 
@@ -6442,23 +6135,18 @@ async def opt_common_wording(file_name,fund_type,input,prompt_result,excel_base6
         ],
         max_tokens=MAX_TOKENS,
         temperature=TEMPERATURE,
-        seed=SEED  # 재현 가능한 결과를 위해 seed 설정
+        seed=SEED  # seed
     )
     answer = response['choices'][0]['message']['content'].strip()
     re_answer = remove_code_blocks(answer)
 
     # add the write logic
-    # 틀린 부분 찾기
     corrections = find_corrections(re_answer,input,pageNumber)
 
     corrections_wording = find_corrections_wording(input,pageNumber)
 
     combine_corrections = corrections + corrections_wording
 
-    # add half-full logic 603
-    # test_ = convert_halfwidth_to_fullwidth_safely(corrections)
-
-    # 엑셀 처리
     if excel_base64:
         try:
             excel_bytes_decoding = base64.b64decode(excel_base64)
@@ -6481,7 +6169,7 @@ async def opt_common_wording(file_name,fund_type,input,prompt_result,excel_base6
     if pdf_base64:
         try:
             pdf_bytes = base64.b64decode(pdf_base64)
-            # 위치 정보만 찾아 corrections에 저장
+            
             find_locations_in_pdf(pdf_bytes, combine_corrections)
             
         except ValueError as e:
@@ -6492,7 +6180,7 @@ async def opt_common_wording(file_name,fund_type,input,prompt_result,excel_base6
     # return JSON
     return jsonify({
         "success": True,
-        "corrections": combine_corrections,  # 틀린 부분과 코멘트
+        "corrections": combine_corrections,  
         "debug_re_answer":re_answer, #610 debug
     })
 
@@ -6517,7 +6205,7 @@ def opt_typo():
         excel_base64 = data.get("excel_bytes", "")
         resutlmap = data.get("original_text", "")
 
-        fund_type = data.get("fund_type", "public")  # 기본값은 'public'
+        fund_type = data.get("fund_type", "public")  #  'public'
         file_name_decoding = data.get("file_name", "")
         upload_type = data.get("upload_type", "")
         comment_type = data.get("comment_type", "")
@@ -6600,7 +6288,7 @@ async def handle_result(prompt_result):
         ],
         max_tokens=MAX_TOKENS,
         temperature=TEMPERATURE,
-        seed=SEED  # 재현 가능한 결과를 위해 seed 설정
+        seed=SEED  # seed
     )
     answer = response['choices'][0]['message']['content'].strip()
     return answer
@@ -6777,7 +6465,7 @@ def opt_kanji():
         excel_base64 = data.get("excel_bytes", "")
         resutlmap = data.get("original_text", "")
 
-        fund_type = data.get("fund_type", "public")  # 기본값은 'public'
+        fund_type = data.get("fund_type", "public")  #  'public'
         file_name_decoding = data.get("file_name", "")
         upload_type = data.get("upload_type", "")
         comment_type = data.get("comment_type", "")
@@ -6814,7 +6502,6 @@ def opt_kanji():
 # 2. PDF download endpoint
 @app.route('/api/download_pdf/<token>', methods=['GET'])
 def download_pdf(token):
-    # token에 이미 .pdf가 붙어 있을 경우 그대로 사용
     file_name = token if token.lower().endswith('.pdf') else f"{token}.pdf"
     temp_path = os.path.join("/tmp", file_name)
 
@@ -7131,6 +6818,32 @@ def loop_in_ruru(input):
                     "Output": "'original': '行って来い', 'correct': '一時上昇したものの、その後下落し、前日と同水準で終了しました。', 'reason': '「行って来い」は曖昧かつ口語的な表現であり、正式な金融文書では具体的な値動きを明記する必要があります。'",
                 }
             ]
+        },
+        {
+        "category": "GrammarCorrection",
+        "rule_id": "3.1",
+        "description": "Ensure sentences are grammatically correct and avoid double subjects or incomplete predicates.",
+        "requirements": [
+            {
+            "condition": "Avoid double subject constructions (e.g., 主語が二重).",
+            "correction": "Use correct particle such as を or reformulate into passive form."
+            },
+            {
+            "condition": "Avoid breaking sentences unnaturally with 'など'.",
+            "correction": "Ensure the sentence has a complete predicate."
+            }
+        ],
+        "output_format": "'original': 'Incorrect text', 'correct': 'Corrected text', 'reason': 'Reason text'",
+        "Examples": [
+            {
+            "Input": "収益の大半が銅製品が占める",
+            "Output": {
+                "original": "収益の大半が銅製品が占める",
+                "correct": "収益の大半を銅製品が占める",
+                "reason": "二重主語を避けるため、正しい助詞『を』を使用"
+            }
+            }
+        ]
         }
         # ,{
         #     "category": "主語の欠落チェック",
@@ -7199,17 +6912,15 @@ def opt_wording():
         
         data = request.json
 
-        # ✅ 전각 문자 반각으로 정규화하는 함수
         def convert_fullwidth_to_halfwidth(text):
             return text.replace('（', '(').replace('）', ')')
         
-        # ✅ 여기에서 전처리
         # input = data.get("input", "")
         input = convert_fullwidth_to_halfwidth(data.get("input", ""))
 
         pdf_base64 = data.get("pdf_bytes", "")
 
-        fund_type = data.get("fund_type", "public")  # 기본값은 'public'
+        fund_type = data.get("fund_type", "public")  #  'public'
         file_name_decoding = data.get("file_name", "")
         icon = data.get("icon", "")
         comment_type = data.get("comment_type", "")
@@ -7381,33 +7092,29 @@ def save_corrections():
         # else:
         #     file_id = file_name
 
-        # 1. 필수 필드 검증
         if not file_name or not isinstance(corrections, list):
-            return jsonify({"success": False, "error": "file_name과 corrections(list)가 필요합니다."}), 400
+            return jsonify({"success": False, "error": "file_name 和 corrections(list)."}), 400
         
-        # 컨테이너 이름 결정
+        # container name Setting
         container_name = f"{fund_type}_Fund"
         # 2. Cosmos DB 连接
         container = get_db_connection(container_name)
 
-        # 기존 항목 존재 여부 확인
         existing_item = list(container.query_items(
             query="SELECT * FROM c WHERE c.id = @id",
             parameters=[{"name": "@id", "value": file_name}],
             enable_cross_partition_query=True
         ))
 
-        # 기존 corrections 가져오기
+        # corrections
         existing_corrections = []
         if existing_item:
             result = existing_item[0].get("result", {})
             existing_corrections = result.get("corrections", [])
 
-        # 기존과 신규를 모두 합친 후, dict_key 기준 중복 제거
         corrections = get_words(corrections, fund_type)
         final_corrections  = existing_corrections + corrections
 
-        # 새 데이터 생성
         item = {
             'id': file_name,
             'fileName': file_name,
@@ -7420,11 +7127,9 @@ def save_corrections():
         
 
         if not existing_item:
-            # 새 항목 생성
             container.create_item(body=item)
             logging.info(f"✅ Cosmos DB Update Success: {file_name}")
         else:
-            # 기존 항목 업데이트
             existing_item[0].update(item)
             container.upsert_item(existing_item[0])
 
@@ -7493,7 +7198,7 @@ async def integrated_test():
             messages=question,
             max_tokens=MAX_TOKENS,
             temperature=TEMPERATURE,
-            seed=SEED  # 재현 가능한 결과를 위해 seed 설정
+            seed=SEED  # seed
         )
         answer = response['choices'][0]['message']['content'].strip()
         return jsonify({"response_ai": answer})
