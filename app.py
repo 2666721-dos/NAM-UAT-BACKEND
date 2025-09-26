@@ -3070,12 +3070,13 @@ replace_rules = {
 
     'ボラティリティ': 'ボラティリティ（価格変動性）', #829
     'ファンダメンタルズ': 'ファンダメンタルズ（経済の基礎的条件）', #829
-    'アメリカ': 'アメリカ（米国）',#924
+    'アメリカ': '米国',#924
 
     
 }
 
 replace_rules1 ={
+    'アメリカ': '米国',#924
     'シャリア': 'シャリーア',
     'TTM': '仲値',
     '殆ど': 'ほとんど',
@@ -3977,6 +3978,7 @@ CHECKED_PDF_CONTAINER = "checked_pdf"
 
 public_container = get_db_connection(PUBLIC_FUND_CONTAINER_NAME)
 private_container = get_db_connection(PRIVATE_FUND_CONTAINER_NAME)
+checked_pdf_container = get_db_connection(CHECKED_PDF_CONTAINER)
 
 def upload_to_azure_storage(pdf_bytes, file_name, fund_type):
         """Azure Blob Storage PDF"""
@@ -3992,7 +3994,6 @@ def upload_to_azure_storage(pdf_bytes, file_name, fund_type):
         except Exception as e:
             logging.error(f"❌ Storage Upload error: {e}")
             return None
-
 def upload_checked_pdf_to_azure_storage(pdf_bytes, file_name, fund_type):
         """Azure Blob Storage PDF"""
         container_name = CHECKED_PDF_CONTAINER
@@ -4007,7 +4008,6 @@ def upload_checked_pdf_to_azure_storage(pdf_bytes, file_name, fund_type):
         except Exception as e:
             logging.error(f"❌ Storage Upload error: {e}")
             return None
-        
 def download_checked_pdf_from_azure_storage(file_name: str, fund_type: str = None) -> bytes:
     """
     从 Azure Blob Storage 下载 PDF
@@ -4075,10 +4075,10 @@ def save_to_cosmos(file_name, response_data, link_url, fund_type, upload_type=''
     except CosmosHttpResponseError as e:
         logging.error(f"❌Cosmos DB save error: {e}")
 
-def save_checked_pdf_cosmos(file_name, response_data, link_url, fund_type, upload_type='', comment_type='',icon=''):
+def save_checked_pdf_cosmos(file_name, response_data, link_url, fund_type,icon=''):
     """Cosmos DB Save"""
     # Cosmos DB 连接
-    container = 'checked_pdf'
+    container = checked_pdf_container
 
     item = {
         'id': file_name,
@@ -4091,11 +4091,6 @@ def save_checked_pdf_cosmos(file_name, response_data, link_url, fund_type, uploa
         'readStatus': "unread",
         'icon': icon,
     }
-    if upload_type:
-        item.update(upload_type=upload_type)
-    if comment_type:
-        item.update(comment_type=comment_type)
-
 
     try:
         existing_item = list(container.query_items(
@@ -4129,6 +4124,7 @@ def get_file_status():
             return jsonify({"success": True, "status": True}), 200
     return jsonify({"success": True, "status": False}), 200
 
+
 @app.route('/api/download_checked_pdf', methods=['POST'])
 def download_checked_pdf():
     try:
@@ -4144,13 +4140,12 @@ def download_checked_pdf():
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
         if items:
             link_url = items[0].get("link_url")
-            return jsonify({"success": True, "status": True,"link_url":link_url}), 200
-    
-
+            return jsonify({"success": True, "status": True, "link_url": link_url}), 200
+        else:
+            return jsonify({"success": False, "status": False, "MSG": "PDF files are not exists"}), 404
     except Exception as e:
-        logging.error(f"❌ Error in write_checked_pdf: {e}")
+        logging.error(f"❌ Error in downloading_checked_pdf: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
-
 
 @app.route('/api/write_upload_save', methods=['POST'])
 def write_upload_save():
@@ -7181,7 +7176,6 @@ def save_corrections():
         pdf_base64 = data.get("pdf_base64",'')
         file_name_decoding = data.get('file_name','')
         icon = data.get('icon','')
-
         # URL Decoding
         file_name = urllib.parse.unquote(file_name_decoding)
 
@@ -7242,53 +7236,45 @@ def save_corrections():
 
             # Save temporarily (in memory or disk), generate a token or filename
             updated_pdf = add_comments_to_pdf(pdf_bytes, corrections)
-        
-            # store in blob then save in DB
-            # temp_file = file_name+'_CHECKED.pdf'
+           
 
             # rename file_name add suffix _checked
             root, ext = os.path.splitext(file_name)
             if ext.lower() == ".pdf":
                 file_name = root + "_checked" + ext
+            
+            if '_Fund' not in fund_type:
+                fund_type = fund_type + '_Fund'
             # ---------PDF -----------
             if pdf_base64:
                 try:
-                    pdf_bytes = base64.b64decode(pdf_base64)
-
-                    response_data = {
-                        "corrections": []
-                    }
-
                     # Blob Upload
-                    link_url = upload_checked_pdf_to_azure_storage(pdf_bytes, file_name, fund_type)
+                    link_url = upload_checked_pdf_to_azure_storage(updated_pdf, file_name, fund_type)
                     if not link_url:
                         return jsonify({"success": False, "error": "Blob upload failed"}), 500
 
                     # Cosmos DB Save
-                    save_checked_pdf_cosmos(file_name, response_data, link_url, fund_type, '', '',icon)
+                    save_checked_pdf_cosmos(file_name, final_corrections, link_url, fund_type,icon)
 
                 except ValueError as e:
                     return jsonify({"success": False, "error": str(e)}), 400
                 except Exception as e:
                     return jsonify({"success": False, "error": str(e)}), 500
 
-        # try:
-            # pdf_bytes = base64.b64decode(pdf_base64)
+            
 
-            # Save temporarily (in memory or disk), generate a token or filename
-            # updated_pdf = add_comments_to_pdf(pdf_bytes, corrections)
-            # temp_filename = f"{uuid.uuid4()}.pdf"
             # temp_path = os.path.join("/tmp", temp_filename)
+
             # with open(temp_path, "wb") as f:
             #     f.write(updated_pdf.read())
             #     updated_pdf.seek(0)
-                
 
-                return jsonify({
-                    "success": True,
-                    "corrections": corrections,
-                    "pdf_download_token": file_name
-                })
+
+            return jsonify({
+                "success": True,
+                "corrections": corrections,
+                "pdf_download_token": file_name
+            })
 
         except ValueError as e:
             return jsonify({"success": False, "error": str(e)}), 400
