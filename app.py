@@ -3851,28 +3851,32 @@ def add_comments_to_pdf(pdf_bytes, corrections):
         page_num = correction["page"]
         comment = correction["comment"]
         reason_type = correction["reason_type"]
-        locations = correction["locations"][0]
-        text_instances = [fitz.Rect(locations["x0"], locations["y0"], locations["x1"], locations["y1"])]
-        if int(text_instances[0][0]) == 0:
-            continue
-        colorSetFill= (1, 1, 0)
 
         if page_num < 0 or page_num >= len(doc):
             raise ValueError(f"Invalid page number: {page_num}")
 
         page = doc.load_page(page_num)
-
+    
+        # Set color based on intgr flag
         if correction["intgr"]:
-            colorSetFill = (172/255, 228/255, 230/255)
+            colorSetFill = (172/255, 228/255, 230/255)  # Light blue
         else:
-            colorSetFill= (1, 1, 0)
+            colorSetFill = (1, 1, 0)  # Yellow
 
-        for rect in text_instances:
+        for locations in correction["locations"]:
+            rect = fitz.Rect(locations["x0"], locations["y0"], locations["x1"],
+            locations["y1"])
+
+            # Skip if x-coordinate is 0
+            if int(rect[0]) == 0:
+                continue
+
+            # Create and configure the annotation
             highlight = page.add_rect_annot(rect)
             highlight.set_colors(stroke=None, fill=colorSetFill)
             highlight.set_opacity(0.5)
             highlight.set_info({
-                "title": reason_type,  # 可选：显示在注释框标题栏
+                "title": reason_type,
                 "content": comment
             })
             highlight.update()
@@ -7123,7 +7127,7 @@ def get_words(converted_data, fund_type):
         if "修正不要" in data["reason_type"]:
             continue
         #---821,-----------------
-        if beforeChange in ["先月の投資環境", "10", "先月の運用経過", "今後の運用方針", "必ず", "銘柄\n純資産比", "会社（以下「ＪＰＸ」という。", "（USD）"]:
+        if beforeChange in ["先月の投資環境\n作成日：", "先月の投資環境", "10", "先月の運用経過", "11月18日）から11月末にかけての騰落率\n　先月の運用経過", "今後の運用方針", "必ず", "銘柄\n純資産比", "会社（以下「ＪＰＸ」という。", "（USD）"]:
             continue
         if re.search(r"^\d+/\d", beforeChange):
             continue
