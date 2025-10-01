@@ -7127,7 +7127,9 @@ def get_words(converted_data, fund_type):
         if "修正不要" in data["reason_type"]:
             continue
         #---821,-----------------
-        if beforeChange in ["先月の投資環境\n作成日：", "先月の投資環境", "10", "先月の運用経過", "11月18日）から11月末にかけての騰落率\n　先月の運用経過", "今後の運用方針", "必ず", "銘柄\n純資産比", "会社（以下「ＪＰＸ」という。", "（USD）"]:
+        if beforeChange in ["先月の投資環境\n作成日：", "先月の投資環境", "10", "先月の運用経過", "今後の運用方針", "必ず", "銘柄\n純資産比", "会社（以下「ＪＰＸ」という。", "（USD）"]:
+            continue
+        if beforeChange.strip().endswith("先月の運用経過"):
             continue
         if re.search(r"^\d+/\d", beforeChange):
             continue
