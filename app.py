@@ -5800,18 +5800,18 @@ def ruru_ask_gpt():
         token = token_cache.get_token()
         openai.api_key = token
         print("✅ Token Update SUCCESS")
-        
+
         data = request.json
         _input = data.get("input", "")
-        result = data.get("result", "")
         orgtext = data.get("Org_Text", "")
-        OrgType = data.get("Org_Type", "")
-        TargetCondition = data.get("Target_Condition", "")
+        target_condition = data.get("Target_Condition", "")
+        result = data.get("result", "")
         pageNumber = data.get('pageNumber',0)
         
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         input, __answer = loop.run_until_complete(get_original(_input, orgtext))
+                
         corrections = []
         pdf_base64 = data.get("pdf_bytes", "")
         if not input:
@@ -5844,8 +5844,8 @@ def ruru_ask_gpt():
             pattern = r'([ABCDEF]コース.?[+-]?\d+(?:\.\d+)?％|[ABCDEF]コース.?基準価額は(?:下落|上昇)(?:ました)?)'
 
             matches_list = re.findall(pattern, _similar)
-            for re_result in matches_list:
-                                
+
+            for re_result in matches_list:  
                 corrections.append({
                         "page": pageNumber,
                         "original_text": re_result,
@@ -5858,39 +5858,28 @@ def ruru_ask_gpt():
                 
             try:
                 pdf_bytes = base64.b64decode(pdf_base64)
-                
                 find_locations_in_pdf(pdf_bytes, corrections)
-                
             except ValueError as e:
                 return jsonify({"success": False, "error": str(e)}), 400
             except Exception as e:
                 return jsonify({"success": False, "error": str(e)}), 500
-
         else:
-            if not input:
-                return jsonify({"success": False, "error": "No input provided"}), 400
-            
-            # add the write logic
             dt = [
-                "文章から原文に類似したテキストを抽出してください",
-                "出力は以下のJSON形式でお願いします:",
-                "- [{'original': '[原文中の誤っている部分:]', 'reason': '[理由:]'}]",
-                "- 類似したものがない場合は、空の文字列を返してください",
-                "- 類似したものが存在する場合は、最も類似度の高いものを抽出してください",
+                    "文章から原文に類似したテキストを抽出してください",
+                    "出力は以下のJSON形式でお願いします:",
+                    "- [{'original': '[原文中の誤っている部分:]', 'reason': '[理由:]'}]",
+                    "- 類似したものがない場合は、空の文字列を返してください",
+                    "- 類似したものが存在する場合は、最も類似度の高いものを抽出してください",
+                    "- 出力文には「Input」「Target_condition」「Result」という単語を含めないでください。",
+                    "- 理由説明では、これらのラベル名を使わず、内容だけで説明してください。",
 
-                "あなたは日本の金融レポートを専門とするプロの校正者です。",
-                "以下の要約文(Input)を、結果(Result)と比較し、数値や意味に関して正しいかをチェックしてください。",
-                "特に次のような誤りがないかを確認してください:",
-                "- 騰落率（%）の不一致",
-                "- 参考指数（ベンチマーク）の騰落率の不一致",
-                "- ポイント",
-                "- 上回った／下回ったの方向性の誤り",
-                "- 月や期間の不一致",
+                    "あなたは日本の金融レポートを専門とするプロの校正者です。",
+                    "以下の要約文(Input)を、原文に相当する参考テキスト(Target_condition)、結果(Result)と比較し、数値や意味に関して正しいかをチェックしてください。"
 
-                f"原文(Input): {input}",
-                f"構結果(Result): {result}",
-                f"原文種別(original): {OrgType}"
-            ]
+                    f"原文(Input): {input}",
+                    f"構結果(Target_condition): {target_condition}",
+                    f"原文種別(Result): {result}"
+                ]
 
             input_data = "\n".join(dt)
 
@@ -5899,15 +5888,14 @@ def ruru_ask_gpt():
                 {"role": "user", "content": input_data}
             ]
             response = openai.ChatCompletion.create(
-                deployment_id=deployment_id,  # Deploy Name
+                deployment_id=deployment_id,
                 messages=question,
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE,
-                seed=SEED  # seed
+                seed=SEED
             )
             _answer = response['choices'][0]['message']['content'].strip().strip().replace("`", "").replace("json", "", 1)
             _parsed_data = ast.literal_eval(_answer)
-            corrections = []
             if _parsed_data:
                 for once in _parsed_data:
                     error_data = once.get("original", "")
@@ -5917,7 +5905,7 @@ def ruru_ask_gpt():
                         "original_text": clean_percent_prefix(error_data),
                         "check_point": input,
                         "comment": f"{error_data} → {reason}", 
-                        "reason_type":reason, 
+                        "reason_type":"整合性不正検知", 
                         "locations": [],
                         "intgr": True, 
                     })
@@ -5936,52 +5924,39 @@ def ruru_ask_gpt():
                             "locations": [],
                             "intgr": True,
                         })
-                
+            
             if pdf_base64:
                 try:
                     pdf_bytes = base64.b64decode(pdf_base64)
-                    
                     find_locations_in_pdf(pdf_bytes, corrections)
-                    
                 except ValueError as e:
                     return jsonify({"success": False, "error": str(e)}), 400
                 except Exception as e:
                     return jsonify({"success": False, "error": str(e)}), 500
-        
         if not corrections:
-        #     match = re.search(r"超過収益[^-+0-9]*([+-]?\d+(?:\.\d+)?)", input)
-        #     if match:
-        #         value = match.group(1)
-        #     else:
-        #         value = input
             corrections.append({
-                        "page": pageNumber,
-                        "original_text": clean_percent_prefix(input),  # 倒数4个字符 [:15]
-                        "check_point": input,
-                        "comment": f"{input} → ", # +0.2% → 0.85% f"{reason} → {corrected}"
-                        "reason_type": "整合性",
-                        "locations": [],
-                        "intgr": True,
-                    })
-                
+                "page": pageNumber,
+                "original_text": clean_percent_prefix(input),
+                "check_point": input,
+                "comment": f"{input} → ",
+                "reason_type": "整合性",
+                "locations": [],
+                "intgr": True,
+            })
+
             try:
                 pdf_bytes = base64.b64decode(pdf_base64)
-                
                 find_locations_in_pdf(pdf_bytes, corrections)
-                
             except ValueError as e:
                 return jsonify({"success": False, "error": str(e)}), 400
             except Exception as e:
                 return jsonify({"success": False, "error": str(e)}), 500
-            
-        # return JSON
         return jsonify({
             "success": True,
             "corrections": corrections,  
-            "input": input, 
-            "answer": _parsed_data, 
+            "input": input,
+            "answer": _parsed_data
         })
-        
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
     
