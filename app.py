@@ -5208,7 +5208,7 @@ def ruru_search_db():
 
         if items:
             # results = [{"id": item["id"], "result": item["result"],"Org_Text":item["Org_Text"],"Org_Type":item["Org_Type"],"Target_Condition":item["Target_Condition"]} for item in items]
-            results = [item if item.get("flag") else {"id": item["id"], "result": item["result"],"Org_Text":item["Org_Text"],"Org_Type":item["Org_Type"],"Target_Condition":item["Target_Condition"]} for item in items]
+            results = [item if item.get("flag") else {"id": item["id"], "result": item["result"],"Org_Text":item["Org_Text"],"Org_Type":item["Org_Type"],"Target_Condition":item["Target_Condition"],"Focus":item["focus"],"Reference":item["reference"]} for item in items]
             return jsonify({"success": True, "data": results}), 200
         else:
             return jsonify({"success": False, "message": "No matching data found in DB."}), 200
@@ -5806,6 +5806,8 @@ def ruru_ask_gpt():
         orgtext = data.get("Org_Text", "")
         target_condition = data.get("Target_Condition", "")
         result = data.get("result", "")
+        focus = data.get("Focus", "")
+        reference = data.get("Reference", "")
         pageNumber = data.get('pageNumber',0)
         
         loop = asyncio.new_event_loop()
@@ -5870,15 +5872,20 @@ def ruru_ask_gpt():
                     "- [{'original': '[原文中の誤っている部分:]', 'reason': '[理由:]'}]",
                     "- 類似したものがない場合は、空の文字列を返してください",
                     "- 類似したものが存在する場合は、最も類似度の高いものを抽出してください",
-                    "- 出力文には「Input」「Target_condition」「Result」という単語を含めないでください。",
+                    "- 出力文には「Input」「Target_condition」「Result」「Origin_Text」「Focus」「Reference」という単語を含めないでください。",
                     "- 理由説明では、これらのラベル名を使わず、内容だけで説明してください。",
+                    "- Focusは、原文(Origin_Text)の中でも特に重要なキーワードまたは文節であり、確認時にはこの部分に特に注目してください。",
+                    "- Referenceは、特に数値や割合などの整合性を判断する際の参照基準となります。Focusと併せて、Referenceとの一致・整合性を重視して確認してください。",
 
                     "あなたは日本の金融レポートを専門とするプロの校正者です。",
-                    "以下の要約文(Input)を、原文に相当する参考テキスト(Target_condition)、結果(Result)と比較し、数値や意味に関して正しいかをチェックしてください。"
+                    "以下の要約文(Input)を、判断根拠(Target_condition)、結果(Result)、原文(Origin_Text)、注目語句(Focus)、および参照基準(Reference)をもとに比較し、数値や意味の整合性を確認してください。"
 
-                    f"原文(Input): {input}",
-                    f"構結果(Target_condition): {target_condition}",
-                    f"原文種別(Result): {result}"
+                    f"文章: {input}",
+                    f"判断根拠: {target_condition}",
+                    f"結果: {result}",
+                    f"原文: {orgtext}",
+                    f"注目語句: {focus}",
+                    f"参照基準: {reference}"
                 ]
 
             input_data = "\n".join(dt)
