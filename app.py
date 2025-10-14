@@ -5047,148 +5047,153 @@ def get_integeration_ruru_cosmos():
     }
     return jsonify(response), 200
 
-# common ruru add logic
-def common_ruru_text(text):
-    corrections = []
-    seen = set()
+# # common ruru add logic
+# def common_ruru_text(text):
+#     corrections = []
+#     seen = set()
 
-    # ① ファンド＋ベンチマーク両方 → 超過収益 
-    pattern_excess = (
-        r"基準価額の騰落率は([+-]?\d+(\.\d+)?)％、"
-        r"ベンチマークの騰落率は([+-]?\d+(\.\d+)?)％"
-    )
-    match = re.search(pattern_excess, text)
+#     # ① ファンド＋ベンチマーク両方 → 超過収益 
+#     pattern_excess = (
+#         r"基準価額の騰落率は([+-]?\d+(\.\d+)?)％、"
+#         r"ベンチマークの騰落率は([+-]?\d+(\.\d+)?)％"
+#     )
+#     match = re.search(pattern_excess, text)
 
-    if match:
-        fund_return = float(match.group(1))
-        benchmark_return = float(match.group(3))
+#     if match:
+#         fund_return = float(match.group(1))
+#         benchmark_return = float(match.group(3))
 
-        # round 2
-        calculated_excess = round(fund_return - benchmark_return, 2)
+#         # round 2
+#         calculated_excess = round(fund_return - benchmark_return, 2)
 
-        result = {
-            "騰落率": fund_return,
-            "ベンチマークの騰落率": benchmark_return,
-            "超過収益（ポイント差）": calculated_excess,
-            "reason": "基準価額とベンチマークの差を計算しました"
-        }
+#         result = {
+#             "騰落率": fund_return,
+#             "ベンチマークの騰落率": benchmark_return,
+#             "超過収益（ポイント差）": calculated_excess,
+#             "reason": "基準価額とベンチマークの差を計算しました"
+#         }
 
-        key = str(result)  # dict set duipli
-        if key not in seen:
-            seen.add(key)
-            corrections.append(result)
-
-
-    else:
-        # pass
-        # ② 個別パターンチェック
-        patterns = {
-            # "fund_only": r"月間の基準価額の騰落率は[+-]?\d+(\.\d+)?％",
-            "benchmark_only": r"ベンチマークの騰落率は[+-]?\d+(\.\d+)?％",
-            "course_multi": r"([Ａ-ＺA-Zぁ-んァ-ン一-龥]+コース)が[+-]?\d+(\.\d+)?％",
-            "hedge": r"(為替ヘッジあり|為替ヘッジなし)は[+-]?\d+(\.\d+)?％",
-            "currency_type": r"(円投資型|米ドル投資型)の月間騰落率は[+-]?\d+(\.\d+)?％",
-            # "global_type": r"【[^】]+】[+-]?\d+(\.\d+)?％",
-            # "point_value": r"[+-]?\d+(\.\d+)?ポイント",
-            "select_course": r"通貨セレクトコース.*?(上昇|下落)",
-            "fund_updown": r"基準価額（分配金再投資）は.*?(上昇|下落)"
-        }
-
-        # ファンド型: 当ファンド + ベンチマーク
-        pattern_fund = r"当ファンドの月間騰落率.*?ベンチマーク[^。]*?ポイント[^。]"
-        # 市況型: 株式市場 + TOPIX
-        pattern_market = r"TOPIX（東証株価指数）[^。]*"
-
-        # --- ファンド型 ---
-        fund_sentences = re.findall(pattern_fund, text)
-        for sentence in fund_sentences:
-            for m in re.finditer(r"[^、。]+?(％|ポイント)", sentence):
-                extracted = m.group(0).strip()
-                if extracted not in seen:
-                    seen.add(extracted)
-                    corrections.append({"extract": extracted})
-
-        # --- 市況型  ---
-        market_sentences = re.findall(pattern_market, text)
-        for sentence in market_sentences:
-            for m in re.finditer(r"[^、。]+?(％|ポイント)", sentence):
-                extracted = m.group(0).strip()
-                if extracted not in seen:
-                    seen.add(extracted)
-                    corrections.append({"extract": extracted})
+#         key = str(result)  # dict set duipli
+#         if key not in seen:
+#             seen.add(key)
+#             corrections.append(result)
 
 
-        # その他のパターン一括抽出
-        for name, pat in patterns.items():
-            for m in re.finditer(pat, text):
-                extracted_other = m.group(0)
-                if extracted_other not in seen:
-                    seen.add(extracted_other)
-                    corrections.append({"extract": extracted_other})
+#     else:
+#         # pass
+#         # ② 個別パターンチェック
+#         patterns = {
+#             # "fund_only": r"月間の基準価額の騰落率は[+-]?\d+(\.\d+)?％",
+#             "benchmark_only": r"ベンチマークの騰落率は[+-]?\d+(\.\d+)?％",
+#             "course_multi": r"([Ａ-ＺA-Zぁ-んァ-ン一-龥]+コース)が[+-]?\d+(\.\d+)?％",
+#             "hedge": r"(為替ヘッジあり|為替ヘッジなし)は[+-]?\d+(\.\d+)?％",
+#             "currency_type": r"(円投資型|米ドル投資型)の月間騰落率は[+-]?\d+(\.\d+)?％",
+#             # "global_type": r"【[^】]+】[+-]?\d+(\.\d+)?％",
+#             # "point_value": r"[+-]?\d+(\.\d+)?ポイント",
+#             "select_course": r"通貨セレクトコース.*?(上昇|下落)",
+#             "fund_updown": r"基準価額（分配金再投資）は.*?(上昇|下落)"
+#         }
 
-    return corrections
+#         # ファンド型: 当ファンド + ベンチマーク
+#         pattern_fund = r"当ファンドの月間騰落率.*?ベンチマーク[^。]*?ポイント[^。]"
+#         # 市況型: 株式市場 + TOPIX
+#         pattern_market = r"TOPIX（東証株価指数）[^。]*"
 
-# --- common ruru api
+#         # --- ファンド型 ---
+#         fund_sentences = re.findall(pattern_fund, text)
+#         for sentence in fund_sentences:
+#             for m in re.finditer(r"[^、。]+?(％|ポイント)", sentence):
+#                 extracted = m.group(0).strip()
+#                 if extracted not in seen:
+#                     seen.add(extracted)
+#                     corrections.append({"extract": extracted})
+
+#         # --- 市況型  ---
+#         market_sentences = re.findall(pattern_market, text)
+#         for sentence in market_sentences:
+#             for m in re.finditer(r"[^、。]+?(％|ポイント)", sentence):
+#                 extracted = m.group(0).strip()
+#                 if extracted not in seen:
+#                     seen.add(extracted)
+#                     corrections.append({"extract": extracted})
+
+
+#         # その他のパターン一括抽出
+#         for name, pat in patterns.items():
+#             for m in re.finditer(pat, text):
+#                 extracted_other = m.group(0)
+#                 if extracted_other not in seen:
+#                     seen.add(extracted_other)
+#                     corrections.append({"extract": extracted_other})
+
+#     return corrections
+
+# # --- common ruru api
 @app.route('/api/common_ruru', methods=['POST'])
 def common_ruru():
-    try:
-        token = token_cache.get_token()
-        openai.api_key = token
-        print("✅ Token Update SUCCESS")
+        return jsonify({
+        "success": True,
+        "corrections": [],
+    })
+    # try:
+    #     token = token_cache.get_token()
+    #     openai.api_key = token
+    #     print("✅ Token Update SUCCESS")
         
-        data = request.json
-        input_list = data.get("input", "")
-        pdf_base64 = data.get("pdf_bytes", "")
-        pageNumber = data.get('pageNumber',0)
+    #     data = request.json
+    #     input_list = data.get("input", "")
+    #     pdf_base64 = data.get("pdf_bytes", "")
+    #     pageNumber = data.get('pageNumber',0)
 
-        if not input_list:
-            return jsonify({"success": False, "error": "No input provided"}), 400
+    #     if not input_list:
+    #         return jsonify({"success": False, "error": "No input provided"}), 400
         
-        corrections = []
-        if isinstance(input_list, list):
-            for idx, t in enumerate(input_list, start=1):
-                part_result = common_ruru_text(t) 
-                for pr in part_result:
-                    corrections.append({
-                        "page": pageNumber,
-                        "original_text": pr.get("extract", t),
-                        "comment": f"{pr.get("extract", t)} → ",
-                        "reason_type": pr.get("reason", "整合性"),
-                        "check_point": pr.get("extract", t),
-                        "locations": [], 
-                        "intgr": True
-                    })
-        else:
-            part_result = common_ruru_text(input_list)
-            for pr in part_result:
-                corrections.append({
-                    "page": pageNumber,
-                    "original_text": input_list,
-                    "comment": f"{input_list} → {pr.get('extract', pr.get('超過収益（ポイント差）', ''))}",
-                    "reason_type": pr.get("reason", "整合性"),
-                    "check_point": pr.get("extract", input_list),
-                    "locations": [],
-                    "intgr": True
-                })
+    #     corrections = []
+    #     if isinstance(input_list, list):
+    #         for idx, t in enumerate(input_list, start=1):
+    #             part_result = common_ruru_text(t) 
+    #             for pr in part_result:
+    #                 corrections.append({
+    #                     "page": pageNumber,
+    #                     "original_text": pr.get("extract", t),
+    #                     "comment": f"{pr.get('extract', t)} → ",
+    #                     "reason_type": pr.get("reason", "整合性"),
+    #                     "check_point": pr.get("extract", t),
+    #                     "locations": [], 
+    #                     "intgr": True
+    #                 })
+    #     else:
+    #         part_result = common_ruru_text(input_list)
+    #         for pr in part_result:
+    #             corrections.append({
+    #                 "page": pageNumber,
+    #                 "original_text": input_list,
+    #                 "comment": f"{input_list} → {pr.get('extract', pr.get('超過収益（ポイント差）', ''))}",
+    #                 "reason_type": pr.get("reason", "整合性"),
+    #                 "check_point": pr.get("extract", input_list),
+    #                 "locations": [],
+    #                 "intgr": True
+    #             })
         
-        try:
-            pdf_bytes = base64.b64decode(pdf_base64)
-            find_locations_in_pdf(pdf_bytes, corrections)
+    #     try:
+    #         pdf_bytes = base64.b64decode(pdf_base64)
+    #         find_locations_in_pdf(pdf_bytes, corrections)
 
-            return jsonify({
-                "success": True,
-                "corrections": corrections,
-            })
+    #         return jsonify({
+    #             "success": True,
+    #             "corrections": corrections,
+    #         })
 
-        except ValueError as e:
-            return jsonify({"success": False, "error": str(e)}), 400
-        except Exception as e:
-            return jsonify({"success": False, "error": str(e)}), 500
+    #     except ValueError as e:
+    #         return jsonify({"success": False, "error": str(e)}), 400
+    #     except Exception as e:
+    #         return jsonify({"success": False, "error": str(e)}), 500
         
         
-    except Exception as e:
-        # exception return JSON 
-        return jsonify({"success": False, "error": str(e)}), 500
+    # except Exception as e:
+    #     # exception return JSON 
+    #     return jsonify({"success": False, "error": str(e)}), 500
+
 
 # --- ruru test api
 
