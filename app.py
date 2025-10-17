@@ -5943,7 +5943,7 @@ def ruru_ask_gpt():
                 for once in _parsed_data:
                     error_data = once.get("original", "")
                     reason = once.get("reason", "")
-                                        positive_keywords = [
+                    positive_keywords = [
                         # 基本的な判断用語
                         "妥当", "正しい", "問題なし", "不整合は認められません", "適切", "整合している",
                         # 同義または近い表現
