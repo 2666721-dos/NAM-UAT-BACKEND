@@ -5906,12 +5906,7 @@ def ruru_ask_gpt():
                 "数値の一致、方向性（上昇／下落）、意味の一致性を総合的に考慮して結論を出してください。"
 
                 f"文章: {input}",
-                f"Org_Text（未置換）: {orgtext}",
-                "※Org_Text は未置換。上記ルールに従い必要な置換を行い、Input の対象記述を同定する補助にのみ用いること。最終判定の根拠は Result と Input のみ。",
                 f"結果: {result}",
-                f"判断根拠: {target_condition}",
-                f"注目語句: {focus}",
-                f"備考: {reference}"
                 ]
 
             input_data = "\n".join(dt)
