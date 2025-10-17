@@ -5943,6 +5943,9 @@ def ruru_ask_gpt():
                 for once in _parsed_data:
                     error_data = once.get("original", "")
                     reason = once.get("reason", "")
+                    # ✅ 如果reason为空或AI说明内容合理，则认为无错误，不计入整合性不正検知
+                    if not reason or any(k in reason for k in ["妥当", "正しい", "問題なし", "不整合は認められません", "適切", "整合している"]):
+                        continue
                     corrections.append({
                         "page": pageNumber,
                         "original_text": clean_percent_prefix(error_data),
