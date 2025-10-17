@@ -5943,8 +5943,22 @@ def ruru_ask_gpt():
                 for once in _parsed_data:
                     error_data = once.get("original", "")
                     reason = once.get("reason", "")
-                    # ✅ 如果reason为空或AI说明内容合理，则认为无错误，不计入整合性不正検知
-                    if not reason or any(k in reason for k in ["妥当", "正しい", "問題なし", "不整合は認められません", "適切", "整合している"]):
+                                        positive_keywords = [
+                        # 基本的な判断用語
+                        "妥当", "正しい", "問題なし", "不整合は認められません", "適切", "整合している",
+                        # 同義または近い表現
+                        "誤りはない", "誤りがない", "誤りではない", 
+                        "一致している", "ほぼ一致", "整合している", "矛盾していない",
+                        "差異はない", "相違はない", "ズレはない",
+                        "整合的", "整合していると判断されます", "合理的", "適正", "正確",
+                        "整合しており", "整合しているため", "一致しており",
+                        "矛盾は認められません", "相違は確認されません", "誤差の範囲",
+                        # GPT 自然な表現を使うこともあります
+                        "数値の誤りはない", "方向性の誤りはない", "整合性は取れている",
+                        "方向性が一致", "値が一致", "内容は一致", "概ね一致"
+                    ]
+
+                    if not reason or any(k in reason for k in positive_keywords):
                         continue
                     corrections.append({
                         "page": pageNumber,
