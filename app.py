@@ -5927,6 +5927,8 @@ def ruru_ask_gpt():
 
                 "原文",
                 f"{orgtext}",
+                "備考",
+                f"{reference}",
                 "文章",
                 f"{input}",
                 "結果",
