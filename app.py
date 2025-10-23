@@ -5823,7 +5823,7 @@ def ruru_ask_gpt():
         orgtext = data.get("Org_Text", "")
         target_condition = data.get("Target_Condition", "")
         result = data.get("result", "")
-        focus = data.get("Focus", "")
+        focus = data.get("focus", "")
         reference = data.get("reference", "")
         pageNumber = data.get('pageNumber',0)
         
