@@ -3779,7 +3779,7 @@ def clean_percent_prefix(value: str):
             return f"{value}{symbol}"
     return value.strip()
                 
-def extract_parts_with_direction(text: str):
+def extract_parts_with_direction(text: str, focus: str = None):
     parts = re.split(r'[、。\n]', text)
     
     segments = []
@@ -3788,10 +3788,17 @@ def extract_parts_with_direction(text: str):
         part = part.strip()
         if not part:
             continue
-
-        # pattern = r'[^％%ポイント上下、。\n]*[+-−]?\d+(?:\.\d+)?(?:％|%|ポイント)'
         pattern = r'[^％%、。\n]*[+-−]{0,2}\d+(?:\.\d+)?(?:％|%|ポイント)'
-        segments.extend(re.findall(pattern, part))
+        matches = re.findall(pattern, part)
+        if not matches:
+            continue
+        if focus:
+            norm_focus = focus.replace("％", "%")
+            norm_part = part.replace("％", "%")
+            if norm_focus in norm_part:
+                segments.extend(matches)
+        else:
+            segments.extend(matches)
 
         # 上下方向
         # direction_match = re.findall(r'(上回りました|下回りました)', part)
@@ -6022,7 +6029,7 @@ def ruru_ask_gpt():
                     })
             else:
                 segments = []
-                segments= extract_parts_with_direction(input)
+                segments= extract_parts_with_direction(input, focus)
                 corrections = []
                 for part in segments:
                     if part:
