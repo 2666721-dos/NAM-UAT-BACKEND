@@ -5806,11 +5806,6 @@ def extract_or_return(sentence):
 
     return extracted if extracted else [sentence]
 
-def mask_numbers_and_signs(text):
-    text = re.sub(r"[+\-−‐–—−]?\d+(\.\d+)?％?", "[数値伏せ]", text)
-    text = re.sub(r"(上昇|下落|プラス要因|マイナス要因)", "[方向伏せ]", text)
-    return text
-
 @app.route('/api/ruru_ask_gpt', methods=['POST'])
 def ruru_ask_gpt():
     try:
@@ -5826,13 +5821,10 @@ def ruru_ask_gpt():
         focus = data.get("focus", "")
         reference = data.get("reference", "")
         pageNumber = data.get('pageNumber',0)
-        logging.info(f"focus:{focus}")
-        logging.info(f"reference:{reference}")
         
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         input, __answer = loop.run_until_complete(get_original(_input, orgtext))
-        text_for_gpt = focus.strip() if focus.strip() else orgtext
                 
         corrections = []
         pdf_base64 = data.get("pdf_bytes", "")
@@ -5899,13 +5891,8 @@ def ruru_ask_gpt():
                 "あなたは日本の金融レポートを専門とするプロの校正者です。",
                 "以下の要約文(Input)を、結果(Result)と比較し、数値や意味に関して正しいかをチェックしてください。",
     
-                "【最重要ルール（最優先・強制遵守）】",
-                "🚫このルールは他のすべての規則に優先し、例外なく適用されます。推定・補完・暗黙の判断は禁止です。",
-                "1️⃣ Org_Text、Target_condition、Focus 内に含まれる数値は、いかなる場合でも比較対象に使用してはいけません。",
-                "2️⃣ 比較・判定に使用できる数値の出所は Result に限定されます。Result 以外の情報源（Org_Text や Focus など）を参照、補正、引用、解釈する行為は禁止です。",
-                "3️⃣ Result に含まれる数値および語句のみを使用し、Input（要約文）内の意味や方向性と照らし合わせて一致／不一致を判断してください。",
-                "4️⃣ Org_Text や Focus 内の方向語（例：上昇・下落・プラス要因・マイナス要因）は補足情報としても使用禁止です。方向の基準は必ず Result の符号（＋／−）によって決定します。",
-
+                "【最重要ルール（最優先）】",
+                "Org_Text、Target_condition、Focus 内に含まれる数値は比較対象に使用してはいけません。必ず Result 内から取得した数値のみを用いて、Input の対応部分と比較してください。つまり、比較・判定に使用できる数値の出所は Result に限定されます。",
                 "加えて、Org_Text 内に「プラスやマイナスは関係なく」「絶対値」「同程度」などの語句が含まれる場合は、Reference にこれらの語が存在する場合と同様に、Result 内の数値比較を絶対値基準で行ってください。",
                 "この場合、符号の違い（プラス／マイナス）は完全に無視し、絶対値の差が許容範囲（例：10％以内）に収まるかどうかのみを基準に判断してください。符号の違いを理由に『誤り』『誤解を招く』『方向性が異なる』『逆である』等の表現を使用してはいけません。",
                 "この絶対値比較ルールが適用される場合、方向性一致ルール（上昇／下落の一致判定）は適用せず、結果の整合性を絶対値基準でのみ判断します。"
@@ -5915,12 +5902,7 @@ def ruru_ask_gpt():
                 # "このルールは絶対値比較ルールが適用されていない場合に限り、他のいかなるルールよりも優先して適用する。",
                 # " 例1：Resultに「+2.2%」、Inputに「マイナス要因」が存在する場合 ⇒ 不整合と判断する。",
                 # " 例2：Resultに「-3.49%」、Inputに「プラス要因」が存在する場合 ⇒ 不整合と判断する。",
-                "【焦点限定ルール（最優先・強制遵守）】",
-                "1️⃣ 本チェックでは、Org_Text に複数の数値や指標が含まれていても、比較・検証の対象は Focus に記載された部分のみに限定します。",
-                "2️⃣ Focus に記載された語句・数値・指標（例：「基準価額騰落率」「TOPIX」「超過収益」など）のみを抽出対象とし、それ以外の語句や数値を比較してはいけません。",
-                "3️⃣ Focus に対応しない部分（例：同文中の他の数値や指標）は、Result に存在していても比較・指摘の対象外とします。",
-                "4️⃣ Focus が空欄の場合のみ、Org_Text 全体を比較対象とします。",
-
+    
                 "【命令：Reference絶対遵守】",
                 "Referenceに明示された列・行指定が存在する場合、Inputの内容や表現に関係なく、必ずReferenceで指定された位置の値のみを使用しなければなりません。",
                 "この規則は最優先であり、いかなる推定・文脈判断よりも優先します。",
@@ -5960,14 +5942,17 @@ def ruru_ask_gpt():
                 "数値の一致、方向性（上昇／下落）、意味の一致性を総合的に考慮して結論を出してください。",
 
                 "原文",
-                f"{mask_numbers_and_signs(text_for_gpt)}",
+                f"{orgtext}",
                 "備考",
                 f"{reference}",
+                "焦点",
+                f"{focus}",
                 "文章",
                 f"{input}",
                 "結果",
                 f"{result}"
                 ]
+
 
             input_data = "\n".join(dt)
 
@@ -6003,12 +5988,9 @@ def ruru_ask_gpt():
                         "方向性が一致", "値が一致している", "値が一致しており", "値が一致しているため"
                         , "内容は一致", "概ね一致", "概ね同程度"
                     ]
-                    # if focus and (focus not in error_data):
-                    #     continue
                     if not reason or any(k in reason for k in positive_keywords):
                         continue
                     corrections.append({
-                        "focus": focus,
                         "page": pageNumber,
                         "original_text": clean_percent_prefix(error_data),
                         "check_point": input,
@@ -6019,12 +6001,11 @@ def ruru_ask_gpt():
                     })
             else:
                 segments = []
-                segments= extract_parts_with_direction(input, focus)
+                segments= extract_parts_with_direction(input)
                 corrections = []
                 for part in segments:
                     if part:
                         corrections.append({
-                            "focus": focus,
                             "page": pageNumber,
                             "original_text": part.strip(),
                             "check_point": input,
@@ -6068,6 +6049,7 @@ def ruru_ask_gpt():
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
     
 # 611 opt - debug new prompt
 def extract_text_from_base64_pdf(pdf_base64: bytes) -> list:
