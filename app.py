@@ -6006,6 +6006,7 @@ def ruru_ask_gpt():
                     if not reason or any(k in reason for k in positive_keywords):
                         continue
                     corrections.append({
+                        "focus": focus,
                         "page": pageNumber,
                         "original_text": clean_percent_prefix(error_data),
                         "check_point": input,
@@ -6021,6 +6022,7 @@ def ruru_ask_gpt():
                 for part in segments:
                     if part:
                         corrections.append({
+                            "focus": focus,
                             "page": pageNumber,
                             "original_text": part.strip(),
                             "check_point": input,
