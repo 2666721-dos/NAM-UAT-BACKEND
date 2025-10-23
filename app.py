@@ -5940,6 +5940,8 @@ def ruru_ask_gpt():
                 f"{orgtext}",
                 "備考",
                 f"{reference}",
+                "焦点",
+                f"{focus}",
                 "文章",
                 f"{input}",
                 "結果",
