@@ -5799,6 +5799,11 @@ def extract_or_return(sentence):
 
     return extracted if extracted else [sentence]
 
+def mask_numbers_and_signs(text):
+    text = re.sub(r"[+\-−‐–—−]?\d+(\.\d+)?％?", "[数値伏せ]", text)
+    text = re.sub(r"(上昇|下落|プラス要因|マイナス要因)", "[方向伏せ]", text)
+    return text
+
 @app.route('/api/ruru_ask_gpt', methods=['POST'])
 def ruru_ask_gpt():
     try:
