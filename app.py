@@ -5823,6 +5823,7 @@ def ruru_ask_gpt():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         input, __answer = loop.run_until_complete(get_original(_input, orgtext))
+        text_for_gpt = focus.strip() if focus.strip() else orgtext
                 
         corrections = []
         pdf_base64 = data.get("pdf_bytes", "")
@@ -5949,12 +5950,8 @@ def ruru_ask_gpt():
                 "ReferenceとResultを用いて正確な数値または語句を導出し、それをInput（および必要に応じてFocus）の意味・方向性と照らし合わせて、整合しているか否かを判断します。",
                 "数値の一致、方向性（上昇／下落）、意味の一致性を総合的に考慮して結論を出してください。",
 
-                "原文（参考）",
-                f"{mask_numbers_and_signs(orgtext)}",
-                "焦点（比較対象）",
-                f"{mask_numbers_and_signs(focus)}",
-                "※ 比較・検証は焦点（Focus）のみを対象とし、原文は補足情報として扱うこと。",
-
+                "原文",
+                f"{mask_numbers_and_signs(text_for_gpt)}",
                 "備考",
                 f"{reference}",
                 "文章",
