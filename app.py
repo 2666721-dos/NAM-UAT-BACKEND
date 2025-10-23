@@ -6001,8 +6001,8 @@ def ruru_ask_gpt():
                         "方向性が一致", "値が一致している", "値が一致しており", "値が一致しているため"
                         , "内容は一致", "概ね一致", "概ね同程度"
                     ]
-                    if focus and (focus not in error_data):
-                        continue
+                    # if focus and (focus not in error_data):
+                    #     continue
                     if not reason or any(k in reason for k in positive_keywords):
                         continue
                     corrections.append({
