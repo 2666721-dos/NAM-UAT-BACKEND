@@ -5826,6 +5826,8 @@ def ruru_ask_gpt():
         focus = data.get("focus", "")
         reference = data.get("reference", "")
         pageNumber = data.get('pageNumber',0)
+        logging.info(f"focus:{focus}")
+        logging.info(f"reference:{reference}")
         
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
