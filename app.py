@@ -6001,20 +6001,7 @@ def ruru_ask_gpt():
                         "方向性が一致", "値が一致している", "値が一致しており", "値が一致しているため"
                         , "内容は一致", "概ね一致", "概ね同程度"
                     ]
-                    exclude_patterns = [
-                        r"内容が異",
-                        r"内容が一致していません",
-                        r"内容が一致していない",
-                        r"一致していません",
-                        r"一致していない",
-                        r"一致しておりません",
-                        r"相違が(?:ある|あります)",
-                        r"整合(?:して)?いません",
-                        r"整合しない"
-                    ]
-                    if any(re.search(p, reason) for p in exclude_patterns):
-                        continue
-                    if "内容が異" in reason:
+                    if focus and (focus not in error_data):
                         continue
                     if not reason or any(k in reason for k in positive_keywords):
                         continue
