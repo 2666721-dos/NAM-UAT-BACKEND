@@ -5822,6 +5822,7 @@ def ruru_ask_gpt():
         _input = data.get("input", "")
         orgtext = data.get("Org_Text", "")
         masked_orgtext = mask_numeric_values(orgtext)
+        masked_focus = mask_numeric_values(focus)
         target_condition = data.get("Target_Condition", "")
         result = data.get("result", "")
         focus = data.get("focus", "")
@@ -5958,7 +5959,7 @@ def ruru_ask_gpt():
                 "備考",
                 f"{reference}",
                 "焦点",
-                f"{focus}",
+                f"{masked_focus}",
                 "文章",
                 f"{input}",
                 "結果",
