@@ -5806,6 +5806,11 @@ def extract_or_return(sentence):
 
     return extracted if extracted else [sentence]
 
+def mask_numeric_values(text):
+    text = re.sub(r"[+\-−‐–—−]?\d+(\.\d+)?％?", "[数値伏せ]", text)
+    # text = re.sub(r"(上昇|下落|プラス要因|マイナス要因)", "[方向伏せ]", text)
+    return text
+
 @app.route('/api/ruru_ask_gpt', methods=['POST'])
 def ruru_ask_gpt():
     try:
@@ -5816,6 +5821,7 @@ def ruru_ask_gpt():
         data = request.json
         _input = data.get("input", "")
         orgtext = data.get("Org_Text", "")
+        masked_orgtext = mask_numeric_values(orgtext)
         target_condition = data.get("Target_Condition", "")
         result = data.get("result", "")
         focus = data.get("focus", "")
@@ -5897,6 +5903,12 @@ def ruru_ask_gpt():
                 "この場合、符号の違い（プラス／マイナス）は完全に無視し、絶対値の差が許容範囲（例：10％以内）に収まるかどうかのみを基準に判断してください。符号の違いを理由に『誤り』『誤解を招く』『方向性が異なる』『逆である』等の表現を使用してはいけません。",
                 "この絶対値比較ルールが適用される場合、方向性一致ルール（上昇／下落の一致判定）は適用せず、結果の整合性を絶対値基準でのみ判断します。"
 
+                "【禁止引用ルール（上書き制約）】",
+                "Org_Text、Target_condition、Focus 内に含まれる数値は、比較・判断・説明いずれの目的でも引用してはいけません。",
+                "特に出力文中において、Org_TextやFocusに含まれる過去の数値を例示・引用・対比に使ってはいけません。",
+                "誤差や符号の説明を行う場合も、必ずResultから取得した数値のみを用いて記述してください。",
+                "出力中にOrg_Text内の数値（例：-1.04％など）を再度表示・引用・比較・転記してはなりません。",
+                "もし比較元がResultから取得できない場合は、『比較対象が存在しないため判定不能』と明示してください。",
                 # "Resultにプラス（+）符号または上昇・改善を示す語句が存在し、かつInputまたはFocusに「マイナス要因」「下落」「悪化」などの語句が含まれる場合は、必ず不整合と判定する。",
                 # "Resultにマイナス（-）符号または下落・悪化を示す語句が存在し、かつInputまたはFocusに「プラス要因」「上昇」「改善」などの語句が含まれる場合は、必ず不整合と判定する。",
                 # "このルールは絶対値比較ルールが適用されていない場合に限り、他のいかなるルールよりも優先して適用する。",
@@ -5942,7 +5954,7 @@ def ruru_ask_gpt():
                 "数値の一致、方向性（上昇／下落）、意味の一致性を総合的に考慮して結論を出してください。",
 
                 "原文",
-                f"{orgtext}",
+                f"{masked_orgtext}",
                 "備考",
                 f"{reference}",
                 "焦点",
