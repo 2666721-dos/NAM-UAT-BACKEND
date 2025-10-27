@@ -5808,7 +5808,7 @@ def extract_or_return(sentence):
 
 def mask_numeric_values(text):
     text = re.sub(r"[+\-−‐–—−]?\d+(\.\d+)?％?", "[数値伏せ]", text)
-    text = re.sub(r"(上昇|下落|プラス要因|マイナス要因)", "[方向伏せ]", text)
+    text = re.sub(r"(上昇|下落|プラス要因|マイナス要因|引き上げ|引き下げ)", "[方向伏せ]", text)
     return text
 
 @app.route('/api/ruru_ask_gpt', methods=['POST'])
