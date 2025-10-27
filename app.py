@@ -5822,10 +5822,10 @@ def ruru_ask_gpt():
         _input = data.get("input", "")
         orgtext = data.get("Org_Text", "")
         masked_orgtext = mask_numeric_values(orgtext)
-        masked_focus = mask_numeric_values(focus)
         target_condition = data.get("Target_Condition", "")
         result = data.get("result", "")
         focus = data.get("focus", "")
+        masked_focus = mask_numeric_values(focus)
         reference = data.get("reference", "")
         pageNumber = data.get('pageNumber',0)
         
