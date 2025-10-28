@@ -6096,6 +6096,7 @@ def ruru_ask_gpt():
                 temperature=TEMPERATURE,
                 seed=SEED
             )
+            response_content = response['choices'][0]['message']['content']
             _answer = response['choices'][0]['message']['content'].strip().strip().replace("`", "").replace("json", "", 1)
             _parsed_data = ast.literal_eval(_answer)
             if _parsed_data:
@@ -6120,6 +6121,7 @@ def ruru_ask_gpt():
                     if not reason or any(k in reason for k in positive_keywords):
                         continue
                     corrections.append({
+                        "response_content": response_content,
                         "focus": focus,
                         "page": pageNumber,
                         "original_text": clean_percent_prefix(error_data),
@@ -6136,6 +6138,7 @@ def ruru_ask_gpt():
                 for part in segments:
                     if part:
                         corrections.append({
+                            "response_content": response_content,
                             "focus": focus,
                             "page": pageNumber,
                             "original_text": part.strip(),
