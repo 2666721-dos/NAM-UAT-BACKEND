@@ -6161,6 +6161,7 @@ def ruru_ask_gpt():
         if not corrections:
             corrections.append({
                 "flag":3,
+                "answer": _answer,
                 "focus": focus,
                 "page": pageNumber,
                 "original_text": clean_percent_prefix(input),
