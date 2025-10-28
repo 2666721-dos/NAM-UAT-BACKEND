@@ -6119,8 +6119,8 @@ def ruru_ask_gpt():
                         "数値の誤りはない", "方向性の誤りはない", "整合性は取れている",
                         "方向性が一致", "値が一致", "内容は一致", "概ね一致", "概ね同程度"
                     ]
-                    if not reason or any(k in reason for k in positive_keywords):
-                        continue
+                    # if not reason or any(k in reason for k in positive_keywords):
+                    #     continue
                     corrections.append({
                         "focus": focus,
                         "page": pageNumber,
