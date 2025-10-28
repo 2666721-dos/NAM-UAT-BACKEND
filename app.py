@@ -5905,7 +5905,7 @@ def extract_or_return(sentence):
 
     return extracted if extracted else [sentence]
 
-def mask_numeric_values(text):
+def mask_numbers_and_signs(text):
     text = re.sub(r"[+\-−‐–—−]?\d+(\.\d+)?％?", "[数値伏せ]", text)
     text = re.sub(r"(上昇|下落|プラス要因|マイナス要因|引き上げ|引き下げ)", "[方向伏せ]", text)
     return text
@@ -5920,11 +5920,11 @@ def ruru_ask_gpt():
         data = request.json
         _input = data.get("input", "")
         orgtext = data.get("Org_Text", "")
-        masked_orgtext = mask_numeric_values(orgtext)
+        masked_orgtext = mask_numbers_and_signs(orgtext)
         target_condition = data.get("Target_Condition", "")
         result = data.get("result", "")
         focus = data.get("focus", "")
-        masked_focus = mask_numeric_values(focus)
+        masked_focus = mask_numbers_and_signs(focus)
         reference = data.get("reference", "")
         pageNumber = data.get('pageNumber',0)
         
@@ -5958,6 +5958,7 @@ def ruru_ask_gpt():
                 seed=SEED  # seed
             )
             _answer = response['choices'][0]['message']['content'].strip().strip().replace("`", "").replace("json", "", 1)
+            response_content = response['choices'][0]['message']['content']
             _parsed_data = ast.literal_eval(_answer)
             _similar = _parsed_data.get("target")
 
@@ -5967,6 +5968,8 @@ def ruru_ask_gpt():
 
             for re_result in matches_list:  
                 corrections.append({
+                        "flag":1,
+                        "response_content": response_content,
                         "page": pageNumber,
                         "original_text": re_result,
                         "check_point": re_result,
@@ -6010,7 +6013,6 @@ def ruru_ask_gpt():
                 "出力中にOrg_Text内の数値（例：-1.04％など）を再度表示・引用・比較・転記してはなりません。",
                 "もし比較元がResultから取得できない場合は、『比較対象が存在しないため判定不能』と明示してください。",
 
-                # ↓↓↓ 这里是新版本的方向性判定规则 ↓↓↓
                 "【方向性判断ルール（厳格版・Result起点）】",
                 "1) 方向性の一致／不一致の判定には、Result 内から得られる情報（参照指示により特定した値の符号（＋／－）、または Result 内の記述語）だけを使用する。",
                 "2) Org_Text、Target_condition、Focus に含まれる方向性語（例：上昇・下落・プラス要因・マイナス要因 等）は、判定根拠として使用してはならない。説明文中での引用・再表示も禁止する（文意理解や注目点の把握のみに用いる）。",
@@ -6115,13 +6117,11 @@ def ruru_ask_gpt():
                         "矛盾は認められません", "相違は確認されません", "誤差の範囲",
                         # GPT 自然な表現を使うこともあります
                         "数値の誤りはない", "方向性の誤りはない", "整合性は取れている",
-                        "方向性が一致", "値が一致している", "値が一致しており", "値が一致しているため"
-                        , "内容は一致", "概ね一致", "概ね同程度"
+                        "方向性が一致", "値が一致", "内容は一致", "概ね一致", "概ね同程度"
                     ]
                     if not reason or any(k in reason for k in positive_keywords):
                         continue
                     corrections.append({
-                        "response_content": response_content,
                         "focus": focus,
                         "page": pageNumber,
                         "original_text": clean_percent_prefix(error_data),
@@ -6138,6 +6138,7 @@ def ruru_ask_gpt():
                 for part in segments:
                     if part:
                         corrections.append({
+                            "flag":2,
                             "response_content": response_content,
                             "focus": focus,
                             "page": pageNumber,
@@ -6159,6 +6160,7 @@ def ruru_ask_gpt():
                     return jsonify({"success": False, "error": str(e)}), 500
         if not corrections:
             corrections.append({
+                "flag":3,
                 "focus": focus,
                 "page": pageNumber,
                 "original_text": clean_percent_prefix(input),
