@@ -4584,6 +4584,8 @@ def ruru_ask_gpt():
                 "この規則は最優先であり、いかなる推定・文脈判断よりも優先します。",
                 "Referenceの指示と異なる列や時点をInputから推定して使用してはいけません。",
                 "特に、「当月末」「前月末比」などの表現が含まれていても、Referenceに指定された列・行以外を使用してはなりません。",
+                "ばresultうちの月が列(例えば4月5月6月| | | 7月)、月人の指定referenceで指定してください(例えば「5月」、「5月」より)の列の索引、この列のいかなる値引用や比較できない。",
+                "Referenceが9月に指定されている場合、9月の列以外の値を参照しているResultはエラーとみなされます。"
 
                 "【絶対値比較ルール（Reference優先適用）】",
                 "Reference に「プラスやマイナスは関係なく」「絶対値」「同程度」などの語が含まれる場合、Result 内の数値比較は絶対値を用いて行ってください。",
@@ -4673,6 +4675,7 @@ def ruru_ask_gpt():
                         continue
                     corrections.append({
                         "focus": focus,
+                        "reference": reference,
                         "page": pageNumber,
                         "original_text": clean_percent_prefix(error_data),
                         "check_point": input,
@@ -4711,7 +4714,7 @@ def ruru_ask_gpt():
         if not corrections:
             corrections.append({
                 "flag":3,
-                "answer": __answer,
+                "reference": reference,
                 "focus": focus,
                 "page": pageNumber,
                 "original_text": clean_percent_prefix(input),
