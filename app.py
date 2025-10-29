@@ -48,6 +48,8 @@ from copy import copy
 from difflib import SequenceMatcher
 import jaconv
 import regex as regcheck
+import unicodedata
+from itertools import groupby
 
 # 日志格式定义 (时间格式，日志级别，消息)
 log_format = '%(asctime)sZ: [%(levelname)s] %(message)s'
@@ -548,7 +550,7 @@ def dic_search_db():
         logging.error(f"❌ Error occurred while searching DB: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
-    ########Add new API gpt_get_content##################
+########Add new API gpt_get_content##################
 # ====== 抽取正文规则提示词 ======
 PROMPT_RULES = [
     "【最優先条件】ページ内に『組入上位10銘柄の解説』または『組入銘柄解説』『脱炭素社会の実現への貢献と企業評価のポイント』が存在する場合、必ず検出して抽出すること。抽取開始条件の有無に関わらず最優先で処理を行い、1〜10の番号単位で『組入銘柄』『銘柄解説』ブロックを構造的に保持する。絶対に削除・省略してはならない。",
@@ -582,6 +584,7 @@ PROMPT_RULES = [
     "【キーワード主題段落】【キーワード：「〇」「○」「◯」が出現した場合、その後の本文を次の章タイトル・フッター・テンプレート文が出るまで保持。",
     "【抽出ロジック】ヘッダー・フッターを無視し、抽取開始条件以降の本文を保持。削除対象①〜④を除去。組入銘柄解説は構造保持。キーワード段落は保持。出力は原文テキストのみ、改行保持、JSON禁止。"
 ]
+
 
 # ============ 通用抽取函数 ==============
 def gpt_extract_content(input_text: str) -> str:
@@ -646,1201 +649,6 @@ def gpt_get_content():
             "success": False,
             "error": str(e)
         }), 500
-
-@app.route('/ask_gpt', methods=['POST'])
-def ask_gpt():
-    try:
-        token = token_cache.get_token()
-        openai.api_key = token
-        print("✅ Token Update SUCCESS")
-        
-        data = request.json
-        prompt = data.get("input", "")
-
-        if not prompt:
-            return jsonify({"success": False, "error": "No input provided"}), 400
-
-        # db get map
-        corrected_map = fetch_and_convert_to_dict()
-
-        # 3. apply_corrections
-        corrected = apply_corrections(prompt, corrected_map)
-
-
-        prompt_result = f"""
-        You are a professional Japanese text proofreading assistant. 
-        Please carefully proofread the content of a Japanese report following the rules below. 
-        This includes not only Japanese text but also English abbreviations (英略語), foreign terms (外来語),
-        and specialized terminology (専門用語). Ensure that all language elements are reviewed according to the guidelines and corrected where necessary.:
-
-        **Report Content to Proofread:**
-        {corrected}
-
-        **Proofreading Requirements:**
-        1. **Check for typos and missing characters (誤字脱字がないこと):**
-        - Ensure there are no **spelling errors** or **missing characters** in the report. 
-        - あなたの役割は、日本語の誤字・脱字・表記ミスを修正し、不完全な単語や文章に適切な語を補完することです。  
-        以下のルールに従い、入力されたテキストを校正してください。
-            **Common Mistakes Examples (誤字・脱字の例)**:
-            Example:
-            - `リテール投家` → `リテール投資家` (誤字: 家 → 資)
-            - `長国債` → `長期国債` (脱字: 期を追加)
-            - `識された` → `意識された` (表記の統一)
-            - `金緩和期待` → `金融緩和期待` (誤字: 金 → 金融)
-            - `見方が動し` → `見方が変動し` (誤字: 動し → 動き)
-            - `視する` → `重視する`  
-            - `経成長` → `経済成長`  
-            - `送配電備` → `送配電設備`  
-            - `業見通し` → `業績見通し`  
-            - `常増益` → `経常増益`  
-            - `財政策` → `財政政策`  
-            - `方` → `方針`  
-            - `手Eコマース` → `大手Eコマース`  
-            - `響しました` → `影響しました`  
-            - `施され` → `実施された`  
-            - `企業の合併・収` → `企業の合併・回収`  
-            - `本とします` → `基本とします`  
-            - `務状況` → `財務状況`
-            - `内投資信託` → `国内投資信託`  
-            - `持しました` → `維持しました`  
-            - `マイナス因` → `マイナス要因`  
-            - `反される` → `反映される`  
-            - `替ヘッジ` → `為替ヘッジ`  
-            - `比は` → `比率は`
-            - `規緩和` → `規制緩和`
-            - `景済指標` → `経済指標`
-            - `剤` → `経済`
-            - `昇するなどまちまちでした。` → `異なる動きとなりました。` (Ensure that the original text is not directly modified but follows this guideline.)
-            - `積極姿勢とした` → `長めとした` (Ensure that the original text is not directly modified but follows this guideline.)
-            - `消極姿勢とした` → `長めとした` (Ensure that the original text is not directly modified but follows this guideline.)
-            - `（割安に）放置` → `割安感のある`
-            - `限定的` → `他の適切な表現に修正 （修正理由: 効果や影響がプラスかマイナスか不明瞭なため）`
-            - `利益確定の売り` → `～が出たとの見方 （修正理由: 断定的な表現では根拠が説明できないため）`
-            - `利食い売り` → `～が出たとの見方 （修正理由: 断定的な表現では根拠が説明できないため）`
-            - `必ず～` → `根拠が明示されていないため使用不可 （修正理由: 将来の運用成績や経済指標・企業業績等について断定的な判断を示す表現はNG）`
-            - `～になる` → `根拠が明示されていないため使用不可 （修正理由: 将来の運用成績や経済指標・企業業績等について断定的な判断を示す表現はNG）`
-            - `～である` → `根拠が明示されていないため使用不可 （修正理由: 将来の運用成績や経済指標・企業業績等について断定的な判断を示す表現はNG）`
-  
-            **Disambiguation Rule**:
-            - 「沈静」＝自然に落ち着く (natural calming down; happens over time)
-            - 「鎮静」＝人為的におさめる (intentional suppression; medically or artificially done)
-
-            **Correction Policy**:
-            1. Detect whether the context implies a natural or artificial calming.
-            2. If the usage does not match the context, correct it using the appropriate word.
-            3. Highlight the correction using the format below:
-            `<span style="color:red;">Corrected Term</span> (<span>修正理由: 意味の誤用 <s style="background:yellow;color:red">Original Term</s> → Corrected Term</span>)`
-            4. Do **not** modify the original sentence structure or paragraph formatting.
-            5. Only apply the correction when the term is clearly misused.
-            6. If the current usage is correct, do not change or annotate it.
-
-            **Example**:
-            - Input: 市場は徐々に鎮静していった。
-            - Output: 市場は徐々に <span style="color:red;">沈静</span> (<span>修正理由: 意味の誤用 <s style="background:yellow;color:red">鎮静</s> → 沈静</span>) していった。
-
-
-        - 表現の使用制限:
-            Expression Usage Restrictions:
-            Restricted Expressions:
-
-            - 魅力的な
-            - 投資妙味
-            - 割高感
-            - 割安感
-
-            Usage Conditions:
-            The above expressions can be used if evidence is provided.
-
-            However, these expressions should not be used in contexts where the word "fund" (ファンド) or any related reference is mentioned. In any sentence or context where "fund" or "ファンド" appears, these expressions should be avoided.
-
-            使用例:
-            魅力的な: 根拠に基づいて使用することは可能ですが、ファンドについては使用しないようにしてください。
-            投資妙味: 投資妙味があることを示す場合でも、ファンドに対する言及は避け、他の投資対象に適用するようにしてください。
-            割高感: 割高感について述べる場合、ファンド以外の投資対象に対して適用してください。
-            割安感: 割安感について言及する場合も、ファンドに対して使用することは不可です。
-
-            ✅ 出力フォーマット:
-            <span style="color:red;">魅力的な</span>
-            (<span>修正理由: ファンドに対しての使用は不可。</span>)
-            ✅ Exsample1:
-            Input:ファンドは魅力的な投資先として紹介された。
-
-            Output:
-            ファンドは
-            <span style="color:red;">魅力的な</span>
-            (<span>修正理由: ファンドに対する使用は不可</span>)投資先として紹介された。
-            ✅ Exsample2:
-            Input:
-            このファンド銘柄には投資妙味がある。
-            
-            Output:
-            この銘柄には
-            <span style="color:red;">投資妙味</span>
-            (<span>修正理由: ファンドに対しての使用は不可。</span>)がある。
-
-
-        - 数字やパーセント（％）を含む文章の誤りをチェックする
-            文脈を理解し、数値・割合の前後の語句が適切か確認すること。
-            例:
-            月末時点（20日判定）での為替ヘッジのターゲット比は48％です。
-            → 正しい表記: 月末時点（20日判定）での為替ヘッジのターゲット比率は48％です。
-            市場の成長率は10%の見込みです。 ✅ (問題なし)
-            インフレ率は2上昇しました。 ❌ (誤り: 2%上昇しました。 に修正)
-            販売シェアは15の拡大が予想されます。 ❌ (誤り: 販売シェアは15%の拡大が予想されます。)
-        - 校正ルール
-            1. **「行って来い」の適切な置き換え**(Ensure that the original text is not directly modified but follows this guideline.)
-            - 文章全体を分析し、「行って来い」が何を指しているのかを判断してください。
-            - **価格・指数・レートなどが上昇した意味の場合** → 「行って来い」を「上昇した」に変換
-            - **価格・指数・レートなどが下落した意味の場合** → 「行って来い」を「下落した」に変換
-
-            2. **文脈を考慮した校正**
-            - 修正の際、周辺の文脈を理解し、自然な形に調整してください。
-            
-            3. **「横ばい」の適切な置き換え**
-            - 文章全体を分析し、「横ばい」の前後の文脈を考慮してください。
-            - **期中の変動幅が小さい場合** → 「横ばい」を維持
-            - **変動幅が大きく、結果的に同程度となった場合** → 「ほぼ変わらず」または「同程度となる」に変更
-            - 周囲の文章に合わせて、より適切な表現を使用してください。
-
-            4. **「出遅れ感」の適切な修正**
-            - 対応方針:
-
-            「出遅れ感」 は主観的な相場観が含まれるため、必ず「…と考えます。」に修正してください。
-
-            修正方法: 文脈に応じて自然に「〜と考えます」形に修正します。
-
-            修正後の表現: 文の流れに合わせて自然に表現を調整し、読みやすさを考慮します。
-
-            修正理由: 相場観が含まれているため、主観的な表現を客観的な表現に変えることで文章の信頼性を向上させます。
-
-            出力フォーマット:
-            <span style="color:red;">出遅れ感</span>
-            (<span>修正理由: 主観的表現の修正 <s style="background:yellow;color:red">出遅れ感</s> → 「〜と考えます」に修正</span>)
-
-            Exsample:
-                Input: この銘柄には出遅れ感がある
-                Output: この銘柄には
-                <span style="color:red;">出遅れ感</span>
-                (<span>修正理由: 主観的表現の修正 <s style="background:yellow;color:red">出遅れ感</s> → 出遅れていると考えます</span>)
-                がある
-
-                Input: 一部のセクターには出遅れ感があると感じられる
-                Output: 一部のセクターには
-                <span style="color:red;">出遅れ感</span>
-                (<span>修正理由: 主観的表現の修正 <s style="background:yellow;color:red">出遅れ感</s> → 出遅れていると考えます</span>)
-                がある
-
-
-            5. **「上昇要因」・「下落要因」の適切な説明追加**
-            - **文脈を分析し、具体的な要因を追加してください**。
-            - **「上昇要因」がある場合** → 上昇の理由（例: 企業決算の改善、政策の発表、需給バランスの変化など）を補足。
-            - **「下落要因」がある場合** → 下落の理由（例: 景気後退懸念、金融引き締め、地政学リスクなど）を補足。
-            - **修正後も文章の流れがスムーズになるように調整してください。
-
-            6. **「予想」「心理」の適切な修正**
-            - **「予想」 がある場合:**  
-                - **誰の予想か明確でない場合** → 「市場予想」に修正  
-            - **「心理」 がある場合:**  
-                - **主語が曖昧な場合** → 「市場心理」に修正
-
-    
-        2. **Follow the "Fund Manager Comment Terminology Guide" (ファンドマネージャコメント用語集に沿った記載となっていること):**
-        - **Consistent Terminology (表記の統一):**
-            - Ensure the **writing format** of financial terms is **consistent throughout the report**.
-            Example:
-            - `相対に低かった` → `相対的に低かった` (文法修正)
-            - `東証33業種分では` → `東証33業種分類では` (表記の統一)
-        - **Common Mistakes and Corrections (誤記と修正例)**:
-            Example:
-            - `政府支の` → `政府支出の遅れ、1回はのを出、2回はのを削除` (誤字: の → 出)
-            - `投資比率を維する` → `投資比率を維持する` (一致性不足 動産 → 不動産)
-            - `（配当こみ）` → `（配当込み）` (表記の統一: こみ → 込み)
-            - `いっぽうで` → `一方で` (表記の統一: いっぽう → 一方)
-            - `ウクライナとロシアをめぐる` → `ウクライナとロシアを巡る` (表記の統一: めぐる → 巡る)
-            - `東証33業種でみると` → `東証33業種で見ると` (文法修正: みる → 見る)
-            - `ひき続き` → `引き続き` (表記の統一: ひき → 引き)
-            - `電気機器、銀行業、保険業等` → `電気機器、銀行業、保険業など` (表記の統一: 等 → など)
-            - `じき` → `次期`
-            - `底いれ後` → `底入れ後`
-            - `なかから` → `中から`
-            - `おもな` → `主要な`
-            - `はやく` → `早急に`
-            - `かいつけした` → `買い付けした`
-            - `など` → `等`
-            - `のぞく` → `除く`
-            - `くみいれ` → `組み入れ`
-            - `じょうき` → `上記`
-            - `とうファンド` → `当ファンド`
-
-        - **Prohibited Words and Phrases (禁止（NG）ワード及び文章の注意事項):**
-            - Check if any prohibited words or phrases are used in the report and correct them as per the guidelines.
-        - **Replaceable and Recommended Terms/Expressions (置き換えが必要な用語/表現、置き換えを推奨する用語/表現):**
-            - If you find terms or expressions that need to be replaced, revise them according to the provided rules.
-            - ハト派／タカ派の表記（金融政策に関する）:
-                -Exsample:
-                - 金融緩和重視  → 金融引き締め重視
-                - 金融緩和に前向き  → 金融引き締めに積極的
-            - Exsample:
-             - 織り込む  → 反映され
-             - 相場  → 市場/価格
-             - 連れ高  → 影響を受けて上昇
-             - 伝播  → 広がる
-             - トレンド  → 傾向
-             - レンジ  → 範囲
-        - **〇％を上回る（下回る）マイナスの表記:**
-                - 〇％を上回る  → 〇％を超える
-                - 〇％を下回る  → 縮小
-                - 〇％を上回る  → 下回るマイナス幅
-                - 〇％を下回る  → 縮小
-
-
-        - **Use of Hiragana (ひらがなを表記するもの):**
-            - Ensure the report follows the rules for hiragana notation, replacing content that does not conform to commonly used kanji.
-        - **Kana Notation for Non-Standard Kanji (一部かな書き等で表記するもの):**
-            - Ensure non-standard kanji are replaced with kana as the standard writing format.
-        - **Correct Usage of Okurigana (一般的な送り仮名など):**
-            - Ensure the correct usage of okurigana is applied.
-        - **English Abbreviations, Loanwords, and Technical Terms (英略語、外来語、専門用語など):**
-            - Check if English abbreviations, loanwords, and technical terms are expressed correctly.
-        - **Identify and mark any 常用外漢字 (Hyōgai kanji):**
-        - **Identify and mark any **常用外漢字 (Hyōgai kanji)** in the following text**
-        - **常用外漢字** refers to characters **not included** in the [常用漢字表 (Jōyō Kanji List)](https://ja.wikipedia.org/wiki/常用漢字), which is Japan’s official list of commonly used kanji.
-        - Refer to the [Wikipedia list of Hyōgai kanji](https://ja.wikipedia.org/wiki/常用漢字) to determine if a character falls into this category.
-        - **For any detected 常用外漢字**, apply the following formatting:
-        - **Highlight the incorrect character in red** (`<span style="color:red;">`).
-        - **Strike through the incorrect character and provide the reason in yellow highlight.**
-
-        ---
-
-        ### **💡 Output Format (出力フォーマット)**
-        - **Incorrect characters should be displayed in red (`<span style="color:red;">`)**.
-        - **Corrected text should be marked with a strikethrough (`<s>`) and highlighted in yellow (`background:yellow`)** to show the correction.
-        - Use the following structure:
-            ```html
-            <span style="color:red;">鴉</span> (<span>修正理由: 常用外漢字 <s style="background:yellow;color:red">鴉</s></span>)
-            ```
-        - **Example Correction**:
-            ```plaintext
-            鴉 → <span style="color:red;">鴉</span> (<span>修正理由: 常用外漢字 <s style="background:yellow;color:red">鴉</s></span>)
-            ```
-        - **For multiple Hyōgai kanji**, apply the same structure to each character.
-
-        ---
-
-        ### **✅ Example Input:**
-        ```plaintext
-        彼は鴉が空を飛ぶのを見た。
-
-        ### **✅ Example output:**
-        ```plaintext
-        彼は <span style="color:red;">鴉</span> (<span>修正理由: 常用外漢字 <s style="background:yellow;color:red">鴉</s></span>) が空を飛ぶのを見た。
-
-        - **Foreign Exchange Market Trend Analysis**
-            In the foreign exchange market (`為替市場`), determine whether `"円だか"` should be revised to `"円高"` (Yen Appreciation) or `"円安"` (Yen Depreciation) based on the **context**.
-
-            #### **** Criteria for Yen Appreciation (円高)**
-            - **Yen appreciation (`円高`) occurs when the value of the yen increases relative to other currencies.**  
-            The following situations indicate yen appreciation:
-            1. **"多くの通貨が対円で下落した"** (Many currencies declined against the yen) → Change `円だか` to **円高**.
-            2. **"ドル円が下落した"** (USD/JPY exchange rate declined) → Change `円だか` to **円高**.
-            3. **"対米ドルで円の価値が上昇した"** (The yen appreciated against the US dollar) → Change `円だか` to **円高**.
-
-            #### **** Criteria for Yen Depreciation (円安)**
-            - **Yen depreciation (`円安`) occurs when the value of the yen declines relative to other currencies.**  
-            The following situations indicate yen depreciation:
-            1. **"多くの通貨が対円で上昇した"** (Many currencies rose against the yen) → Change `円だか` to **円安**.
-            2. **"ドル円が上昇した"** (USD/JPY exchange rate increased) → Change `円だか` to **円安**.
-            3. **"対米ドルで円の価値が下落した"** (The yen depreciated against the US dollar) → Change `円だか` to **円安**.
-
-
-        3. **Replaceable and Recommended Terms/Expressions (推奨される表現の修正)**
-        - Use the correct **kanji, hiragana, and katakana** combinations based on standard Japanese financial terms.
-            Example:
-            - `が好された輸送用機器など` → `が好感された輸送用機器など` (修正理由: 適切な表現)
-
-        - **Task**: Header Date Format Validation & Correction  
-        - **Target Area**: Date notation in parentheses following "今後運用方針 (Future Policy Decision Basis)"  
-        ---
-        ### Validation Requirements  
-        1. **Full Format Compliance Check**:  
-        - Must follow "YYYY年MM月DD日現在" (Year-Month-Day as of)  
-        - **Year**: 4-digit number (e.g., 2024)  
-        - **Month**: 2-digit (01-12, e.g., April → 4)  
-        - **Day**: 2-digit (01-31, e.g., 5th → 5)  
-        - **Suffix**: Must end with "現在" (as of)  
-
-        2. **Common Error Pattern Detection**:  
-        ❌ "1月0日" → Missing month leading zero + invalid day 0  
-        ❌ "2024年4月1日" → 2024年4月1日
-        ❌ "2024年12月" → Missing day value  
-        ❌ "2024-04-05現在" → Incorrect separator usage (hyphen/slash)  
-        ---
-        ### Correction Protocol  
-        1. **Leading Zero Enforcement**  
-        - Add leading zeros to single-digit months/days (4月 → 4月, 5日 → 5日)  
-
-        2. **Day 0 Handling**  
-        - Replace day 0 with YYYYMMDD Date Format  
-        - Example: 2024年4月0日 → 2024年4月00日
-
-        3. **Separator Standardization**  
-        - Convert hyphens/slashes to CJK characters:  
-            `2024/04/05` → `2024年4月5日`  
-
-        ---
-        ### Output Format Specification  
-        ```html
-        <Correction Example>
-        <span style="color:red;">（2024年4月0日現在）</span> 
-        → 
-        <span style="color:green;">（2024年04月00日現在）</span>
-        修正理由:
-        ①日付0をYYYYMMDD日付フォーマットに置換
-        ---
-
-        3. **Consistency with Report Data Section (レポートのデータ部との整合性確認):**
-        - Ensure the textual description in the report is completely consistent with the data section, without any logical or content-related discrepancies.
-
-        4. **Eliminate language fluency(単語間の不要なスペース削除):**
-        - Ensure that there are no extra spaces.
-            -Example:
-            input:景気浮揚が意 識されたことで
-            output:景気浮揚が意識されたことで
-        
-        5.  **Layout and Formatting Rules (レイアウトに関する統一):**
-            - **文頭の「○」印と一文字目の間隔を統一:**
-
-                - When a sentence starts with the symbol ○, make sure there is no space (half-width or full-width) between it and the first character. That is, use ○文字 instead of ○ 文字 or ○　文字.
-                    - Any whitespace (half-width or full-width spaces) after ○ must be removed.
-                    - This spacing rule must be applied consistently throughout the document.
-
-            半角括弧を全角括弧に統一:
-                - Convert all half-width parentheses () to full-width parentheses （）.
-                - Example: (注) → （注）
-                - Example input: 
-                    ○ 世界の高配当株式指数(注)は月間では上昇しました。
-                - Exsample output: 
-                    <span style="color:red;">○世界</span> (<span>修正理由: 文頭の「○」印と一文字目の間隔を統一 <s style="background:yellow;color:red">○ 世界</s> → ○世界</span>)
-                    <span style="color:red;">（注）</span> (<span>修正理由: 半角括弧を全角括弧に統一 <s style="background:yellow;color:red">(注)</s> → （注）</span>)
-
-
-            - **文章の間隔の統一:**
-                - If a sentence begins with "○", ensure that the spacing within the frame remains consistent.
-            - **上位10銘柄 コメント欄について、枠内に適切に収まっているかチェック:**
-                - If the stock commentary contains a large amount of text, confirm whether it fits within the designated frame. 
-                - If the ranking changes in the following month, adjust the frame accordingly.
-                - **Check point**
-                    1. **文字数制限内に収まっているか？**
-                    - 1枠あたりの最大文字数を超えていないか？
-                    - 適切な行数で収まっているか？
-
-                    2. **次月の順位変動に伴う枠調整の必要性**
-                    - 順位が変更されると枠調整が必要なため、調整が必要な箇所を特定
-
-                    3. **枠内に収まらない場合の修正提案**
-                    - 必要に応じて、短縮表現や不要な情報の削除を提案
-                    - 重要な情報を損なわずに適切にリライト
-
-                    output Format:
-                    - **コメントの枠超過チェック**
-                    - (枠超過しているか: はい / いいえ)
-                    - (超過している場合、オーバーした文字数)
-
-                    - **順位変動による枠調整の必要性**
-                    - (調整が必要なコメントリスト)
-
-                    - **修正提案**
-                    - (枠内に収めるための修正後のコメント)
-
-            **Standardized Notation (表記の統一):**
-            - **基準価額の騰落率:**
-            When there are three decimal places, round off using the round-half-up method to the second decimal place. If there are only two decimal places, keep the value unchanged.
-                Make modifications directly in this article and explain the reasons for the modifications.
-
-                exsample:
-                0.546％（×） → 0.55％（○）
-                修正理由: 小数点以下の桁数の丸め（0.546％ → 0.55％）
-                If the value is 0.00％, replace it with "前月末から変わらず" or "前月末と同程度" instead of stating "騰落率は変わらず".
-                修正理由: 「騰落率は変わらず」という表記はNG。代わりに「基準価額（分配金再投資）は前月末から変わらず」や「前月末と同程度」と記載します。
-
-                exsample:
-                0.00％となり（×） → 前月末から変わらず（○）
-
-                騰落率は変わらず（×） → 基準価額（分配金再投資）は前月末から変わらず（○）
-
-                When comparing the performance of the fund with the benchmark (or reference index), the comparison must be made using rounded numbers.
-
-                修正理由: 比較は丸めた数字で行なうこと。
-                If the fund and benchmark (or reference index) have the same rate of return, use the phrase "騰落率は同程度となりました" instead of saying "騰落率は同じでした".
-                修正理由: 同じという表現は避け、代わりに「同程度」と記載すること。
-
-                exsample:
-                「騰落率は同じでした」（×） → 「騰落率は同程度となりました」（○）
-                If the fund's rate of return is greater than the benchmark's, use the phrase "上回りました" to indicate the fund outperformed the benchmark.
-                修正理由: 上回った場合、「上回りました」と表記すること。
-
-                exsample:
-                騰落率は-1.435％（基金）と-2.221％（ベンチマーク）の場合、値の差は0.79％となるため、「上回りました」と記載します。
-
-                If the fund's rate of return is lower than the benchmark's, use the phrase "下降しました" to indicate the fund underperformed the benchmark.
-                修正理由: 下降した場合、「下降しました」と表記すること。
-
-                exsample:
-                騰落率は-1.435％（基金）と-0.221％（ベンチマーク）の場合、基金のパフォーマンスは「下降しました」と記載します。
-
-            - **「今後の運用方針」作成日付のルール:**
-                - 前月末（営業日）現在で作成。
-                - 翌月初の日付になる場合は、作成した日付を入れる。
-                - クライアント・サービス部へ送信する以降の日付（先日付）は入れない。
-                - 「参考月」より後であり、「チェック期間」より前の日付のみ使用可。
-                    - Example:
-                    - OK: 参考月＝2024年2月 → 作成日が2024年2月28日（営業日） or 3月1日（翌月初）
-                    - NG: 参考月＝2024年2月 → 作成日が3月5日（クライアント・サービス部送信後の先日付）
-
-            - **％（パーセント）、カタカナ:**
-                - **半角カタカナ → 全角カタカナ**（例:「ｶﾀｶﾅ」→「カタカナ」）
-                - **半角記号 → 全角記号**（例:「%」→「％」、「@」→「＠」）
-                    Example:
-                        input: ﾍﾞﾝﾁﾏｰｸ (修正理由: 半角カタカナを全角カタカナに統一 ﾍﾞﾝﾁﾏｰｸ → ベンチマーク)に対して 
-                        output: ベンチマーク (修正理由: 半角カタカナを全角カタカナに統一 ﾍﾞﾝﾁﾏｰｸ → ベンチマーク)に対して
-                    Example:
-                        input: ｶﾀｶﾅ 
-                        output: カタカナ
-                    Example:
-                        input: %
-                        output: ％ 
-                    Example:
-                        input: @
-                        output: ＠ 
-
-            - **数字、アルファベット、「＋」・「－」:**
-                - **全角数字・アルファベット → 半角数字・アルファベット**（例:「１２３」→「123」、「ＡＢＣ」→「ABC」）
-                - **全角「＋」「－」 → 半角「+」「-」**（例:「＋－」→「+-」
-                    Example:
-                        input: １２３ ＡＢＣ ｱｲｳ ＋－
-                        output: 123 ABC アイウ +-
-
-            - **スペースは変更なし**  
-
-            - **「※」の使用:**
-                - 「※」は可能であれば **上付き文字（superscript）※** に変換してください。
-                - 出力形式の例:
-                - 「重要事項※」 → 「重要事項<sup>※</sup>」
-
-            - **（カッコ書き）:**
-                - Parenthetical notes should only be included in their first occurrence in a comment.
-                    For the following Japanese text, check if parentheses ("（ ）") are used appropriately.
-                    If a parenthetical note appears more than once, remove the parentheses for subsequent occurrences.
-                    The first occurrence should retain the parentheses, but any further appearances should have the parentheses removed.
-                    Modification reason: Parentheses are redundant after the first mention, so the text is cleaned up for consistency and readability.
-
-                **Check point**
-                    1. **カッコ書きは、コメントの初出のみに記載されているか？**
-                    - 同じカッコ書きが2回以上登場していないか？
-                    - 初出ページ以降のコメントにカッコ書きが重複して記載されていないか？
-
-                    2. **ディスクロのページ番号順に従ってルールを適用**
-                    - シートの順番ではなく、実際のページ番号を基準にする。
-
-                    3. **例外処理**
-                    - 「一部例外ファンドあり」とあるため、例外的にカッコ書きが複数回登場するケースを考慮する。
-                    - 例外として認められるケースを判断し、適切に指摘。
-
-                    output Format:
-                    - **カッコ書きの初出リスト**（どのページに最初に登場したか）
-                    - **重複チェック結果**（どのページで二重記載されているか）
-                    - **修正提案**（どのページのカッコ書きを削除すべきか）
-                    - **例外ファンドが適用される場合、補足情報**
-
-            - **会計期間の表記:**
-                - The use of "～" is prohibited; always use "-".
-                - Make modifications directly in this article and explain the reasons for the modifications.
-                    - Example: 6～8月期（×） → 6-8月期（○）
-
-                - 暦年を採用している国の年度表記:
-                - Do not Make modifications directly in this article and explain the reasons for the modifications.
-                カッコ書きで暦年の期間を明記する。
-                - Example:
-                    ブラジルの2021年度予算（×） → ブラジルの2021年度（2021年1月-12月）予算（○）
-
-                - 決算期間は「●-●月期」に統一し、日付は省略する。
-                - Do not Make modifications directly in this article and explain the reasons for the modifications.
-                    - Example: 第1四半期（5月21日～8月20日）（×） → 5-8月期（○）
-                    イレギュラーなケースも含め、原則「●-●月期」と表記。
-
-            - **「TOPIX」または「東証株価指数」が含まれている場合、以下のルールを適用:**
-                文中で使用する場合: 「TOPIX（東証株価指数）」と表記することを指示。
-                「文中では『TOPIX（東証株価指数）』と表記してください。(Ensure that the original text is not directly modified but follows this guideline.)」
-                ベンチマーク（BM）や参考指数として使用する場合: 「東証株価指数（TOPIX）（配当込み）」と表記することを指示。
-                「BMや参考指数で使用する場合は、『東証株価指数（TOPIX）（配当込み）』と表記してください。(Ensure that the original text is not directly modified but follows this guideline.)」
-
-            - **年をまたぐディスクロコメントの年度表記:**
-                - Make modifications directly in this article and explain the reasons for the modifications.
-                - When specifying the fiscal year in disclosure comments that span multiple years, always use "yyyy年度".
-                - Similarly, for disclosures based on the January-March period, specify the corresponding year.
-                - Example:
-                    - For a disclosure with a December-end reference, released in January:
-                    - 今年度（×） → 2021年度（○）
-                    - 来年度（×） → 2022年度（○）
-            - **Benchmark, Index, and Reference Index Name Formatting:(ベンチマーク・インデックス・参考指数の名称の表記)
-                - Ensure Consistency in Index Terminology:
-                    Read the context and identify terms related to "index" (指数) within the text. Ensure that these terms are unified and consistently referred to using the correct and standardized terminology.
-                    It is important to carefully analyze each mention of "index" to make sure the terminology is consistent throughout the text.
-                    Do not modify the original text directly. Instead, provide comments that explain the reasoning behind the proposed changes, especially when identifying inconsistencies or clarifications needed.
-                Example Formatting Guidelines:
-
-                    Incorrect format (×): "ISM非製造業景況"
-                    Correct format (○): "ISM非製造業景況指数"
-                    Incorrect format (×): "MSCIインド"
-                    Correct format (○): "MSCIインド・インデックス"
-                    If multiple terms are used to refer to the same index, they should be unified under the correct term. For example, if "MSCIインド指数" and "MSCIインド・インデックス" are used in different places, they should be unified as "MSCIインド・インデックス" in the final report to maintain consistency.
-                Handling Multiple Terms Referring to the Same Index:
-
-                    If it can be clearly determined that different terms refer to the same index (e.g., "MSCIインド指数" and "MSCIインド・インデックス"), do not modify them but mark them accordingly. These terms should be noted as referring to the same index.
-                    Example:
-                    Original: "MSCIインド指数" and "MSCIインド・インデックス"
-                    Comment: These are different ways of referring to the same index, so no change is needed.
-                Handling Uncertainty in Index Terminology:
-                    
-                    If there is uncertainty about whether multiple terms refer to the same index (e.g., it is unclear whether "ISM非製造業景況" and "ISM非製造業景況指数" refer to the same index), mark them without modification. Additionally, note that these terms might refer to the same index, but the exact nature of the index should be verified.
-                    Example:
-                    Original: "ISM非製造業景況" and "ISM非製造業景況指数"
-                    Comment: These terms are potentially referring to the same index but require further clarification. Therefore, no changes are made in this case.
-                Key Notes:
-
-                Always ensure that consistency is maintained across the report. Even if different names are used for the same index, it is essential to mark them properly and explain that they are different terms for the same entity.
-                Consistency applies not only to the formatting of the terms but also to how the terms are presented across the entire document. All references to a given index must follow the same format from the first mention to the last.
-
-
-            - **上昇 or 下落に関する要因を明記:**
-                文章内に 「上昇」 または 「下落」 という単語が含まれている場合、その要因を特定し、明記してください。
-                output:
-                「●●は上昇（または下落）しました。(理由: ○○)」
-            - **指定用語の表記ルールを提示:**
-                独Ifo企業景況感指数 または 独Ifo景況感指数 が含まれている場合、以下のメッセージを表示する。
-                独Ifo企業景況感指数 または独Ifo景況感指数 の表記について、月報内での統一ルールを確認してください。(Ensure that the original text is not directly modified but follows this guideline.)」
-                
-                「独ZEW景気期待指数」または「独ZEW景況感指数」 が含まれている場合、以下のメッセージを表示する。
-                「『独ZEW景気期待指数』または『独ZEW景況感指数』の表記を使用してください。ZEW単独使用の場合は括弧書き付き、または『欧州経済研究センター』のみとし、『ZEW』単独使用を避けてください。(Ensure that the original text is not directly modified but follows this guideline.)」
-            - **特定の金融用語に対する表記ルールを確認・適用:**
-
-                「リフレーション」 が含まれている場合、以下のメッセージを表示。
-                「リフレーションとは、デフレーションから抜けて、まだインフレーションにはなっていない状況を指します。」
-
-                「リスクプレミアム」 が含まれている場合、以下のメッセージを表示。
-                「リスクプレミアムとは、あるリスク資産の期待収益率が、同期間の無リスク資産（国債など）の収益率を上回る幅を指します。」
-
-                「モメンタム」 が含まれている場合、以下のメッセージを表示。
-                「『モメンタム』の使用は避け、相場の『勢い』や『方向性』などの言葉に置き換えてください。」
-
-                「ベージュブック」 が含まれている場合、以下のメッセージを表示。
-                「『ベージュブック』は『FRB（米連邦準備制度理事会）が発表したベージュブック（地区連銀経済報告）』と明記してください。スペースが限られる場合は、『ベージュブック（米地区連銀経済報告）』としてください。」
-
-                「フリーキャッシュフロー」 が含まれている場合、以下のメッセージを表示。
-                「フリーキャッシュフローとは、税引後営業利益に減価償却費を加え、設備投資額と運転資本の増加を差し引いたものです。」
-                
-                「システミック・リスク」 が含まれている場合、以下のメッセージを表示。
-                「システミック・リスクとは、個別の金融機関の支払不能や特定の市場・決済システム等の機能不全が、他の金融機関、市場、または金融システム全体に波及するリスクを指します。」
-
-                「クレジット（信用）市場」 が含まれている場合、以下のメッセージを表示。
-                「クレジット（信用）市場とは、信用リスク（資金の借り手の信用度が変化するリスク）を内包する商品（クレジット商品）を取引する市場の総称であり、企業の信用リスクを取引する市場です。」
-            - **特定の金融用語に対し、欄外に注記を加える指示を表示:**
-                「格付別」 が含まれている場合:
-                    格付別 -> 格付別
-                「格付機関」 が含まれている場合:
-                    格付機関 -> 格付機関
-                「組入比率」 が含まれている場合:
-                    組入比率 -> 組入比率
-                「引締策」 が含まれている場合:
-                    引締策 -> 引締策
-                「国債買入れオペ」 が含まれている場合:
-                    国債買入れオペ -> 国債買入オペ
-
-                「投資適格債」 が含まれている場合:
-                「※欄外に注記: 投資適格債とは、格付機関によって格付けされた公社債のうち、債務を履行する能力が十分にあると評価された公社債を指します。」
-
-                「デュレーション」 が含まれている場合:
-                「※欄外に注記: デュレーションとは、金利が一定の割合で変動した場合、債券の価格がどの程度変化するかを示す指標です。この値が大きいほど、金利変動に対する債券価格の変動率が大きくなります。」
-
-                「デフォルト債」 が含まれている場合:
-                「※欄外に注記: デフォルトとは、一般的に債券の利払いおよび元本返済の不履行、または遅延などを指し、このような状態にある債券を『デフォルト債』といいます。」
-
-                「ディストレス債券」 が含まれている場合:
-                「※欄外に注記: ディストレス債券とは、信用事由などにより価格が著しく下落した債券を指します。」
-                
-                「イールドカーブ」 が含まれている場合:
-                「※欄外に注記: イールドカーブ（利回り曲線）とは、横軸に残存年数、縦軸に利回りをとった座標に、債券利回りを点描して結んだ曲線のことを指します。」
-
-            - **組入上位10銘柄」について記述がある場合、以下のルールを適用:**
-                「組入上位10銘柄を超える保有銘柄（個別銘柄の特定が可能な子会社名等を含む）は原則として開示禁止である」ことを明示。
-                ただし、社内規程に基づき開示が認められているファンドは例外とすることを伝える。
-
-            - **年度表記:**
-                - Use four-digit notation for years.(Ensure that the original text is not directly modified but follows this guideline.)
-                - Example: 22年（×） → 2022年（○）
-
-            - **前年比 or 前年同月（同期）比の統一:**
-                - 「前年同月（同期）比」に統一。
-                - 通年の比較には「前年比」の使用可。
-                - Ensure that the original text is not directly modified but follows this guideline.
-                - Do not Make modifications directly in this article and explain the reasons for the modifications.
-                    - Example:
-                        前年比+3.0%（×） → 前年同月比+3.0%（○）
-                        2023年のGDPは前年比+3.0％（○）
-
-            - **年をまたいだ経済指標の記載:**
-                - コメント内の初出のみに記載する。(In the case where there is a description of the economic indicator over the year, it is described only in the first comment.)
-                    - Example:
-                        - 2023年12月のCPIは～（○）
-                        - 一方2024年1月のユーロ圏PMIは～ （○）
-                        - 10-12月期のGDPは～（○）
-            - **経済指標について:**
-                    -"加速" の対象を明確に記載すること。文脈を考慮し、"加速" の対象を適切に補う。
-                        文脈に応じて、"何が加速したのか" を判断し、適切な単語に修正してください。
-                        修正ルール:
-
-                        - 前月から加速しました（×） → 何が加速したのかを明記（○）
-                        Exsample: 「前月から上昇が加速しました」 → 「景気回復の加速（○）」
-                        - 前月から上昇が加速しました（×） → 具体的な経済活動を明記（○）
-                        Exsample: 「景気加速（○）」「消費の回復が加速（○）」「投資の拡大が加速（○）」
-                        - 経済（×） → 景気（○）（"経済" ではなく "景気" を用いる）
-                        Exsample: 
-                        前月から加速しました。（×）-> 企業の設備投資が加速しました。（○）
-                        経済加速が見られます。（×）-> 景気加速が見られます。（○）
-                        消費が前月から加速しました。（×）-> 個人消費の拡大が加速しました。（○）
-                        インフレが前月から加速しました。（×）-> 物価上昇のスピードが加速しました。（○）
-
-
-                    - 日付・国名の明記:
-                        いつのものか特定できる場合、○月のものかを明記する。例: 「10月の製造業PMI（購買担当者景気指数）は～」
-                        必要に応じて国名も記載する。（文脈に応じて記載していれば、位置は問わない）
-                    - 日付・国名の変換ルール:
-
-                        **「下旬」「上旬」**と記載されている場合、文脈から適切な日付に変更する。
-                        **「ユーロ圏」**と記載されている場合、文脈に応じて適切な国名に置き換える。
-                        Exsample:
-
-                        修正前: 「下旬は、ユーロ圏総合PMI（購買担当者景気指数）が…」
-
-                        修正後: 「10月下旬のドイツ総合PMI（購買担当者景気指数）が…」
-
-                        修正前: 「上旬は、ユーロ圏総合PMI（購買担当者景気指数）が…」
-
-                        修正後: 「10月上旬のフランス総合PMI（購買担当者景気指数）が…」
-
-            - **業界指数の表記:**
-                - 必ず対象となる「月」を明記する。
-                - 月がない場合、最近3ヶ月以内か、3ヶ月以上前のものかを確認する。
-                - 必要に応じて国名も記載する。（文脈に応じて位置は自由）
-                    - Example:
-                        - 製造業PMI（購買担当者景気指数）（×） → 10月の製造業PMI（○）
-                        - 直近3ヶ月以内の指数は明示的に「○月」と記載する。（例:12月のCPI）
-                        - 3ヶ月以上前の指数は、比較の文脈を明確にする。（例:2023年10月のGDP成長率）
-                        - ユーロ圏の10月PMIは～（○）
-            - **カタカナ表記の統一:**
-                Katakana representation of foreign words should be unified within the document.
-                    Ensure that the Katakana form is consistent throughout the text, and choose one version for the entire document.
-                    Modification reason: To maintain consistency in the usage of Katakana for foreign words.
-                    Example of text modifications:
-
-                    サステナブル (×) → サスティナブル (○)
-
-                    エンターテイメント (×) → エンターテインメント (○)
-            
-            - **レンジの表記について表記:**
-                - Always append "%" when indicating a range.(Ensure that the original text is not directly modified but follows this guideline.)
-                - Make modifications directly in this article and explain the reasons for the modifications.
-                - Example: -1～0.5%（×） → -1%～0.5%（○）
-            - **償還に関する記載:**
-                - Do not Make modifications directly in this article and explain the reasons for the modifications.
-                - 最終リリースの1ヵ月程前より、償還に関する内容を入れること。
-                - 例）当ファンドは、●●月●●日に信託の終了日（償還日or繰上償還日）を迎える予定です。
-                - ※（）内は、定時償還の場合には償還日、繰上償還の場合には繰上償還日とする。
-            - **個別企業名の表記:**
-                - 投資環境等においては、個別企業の名称を使わない表現を心掛ける。
-                - 例:スイス金融大手クレディ・スイス（×） → スイスの大手金融グループ（○）
-            - **プラスに寄与/影響の表記:**
-                - Do not Make modifications directly in this article and explain the reasons for the modifications.
-                - 「プラスに寄与」または「プラスに影響」どちらも可。
-                - または、「～プラス要因となる」と表記。
-            - **マイナスに影響の表記:**
-                - Make modifications directly in this article and explain the reasons for the modifications.
-                - 「マイナスに寄与」（×）→「マイナスに影響」（○）
-                - マイナスの際は「寄与」は使用しない。
-                - または、「～マイナス要因となる」と表記。
-            - **利回りの表記:**
-                - Make modifications directly in this article and explain the reasons for the modifications.
-                - 利回りは「上昇（価格は下落）」または「低下（価格は上昇）」と表記。
-            - **低下と下落の表記:**
-                - Make modifications directly in this article and explain the reasons for the modifications.
-                - 債券利回りは「低下（○）」と表記し、「下落（×）」は使用しない。
-                - 価格は「下落（○）」と表記し、「低下（×）」は使用しない。
-                - 金利の「低下（〇）」と表記し、「下落（×）」は使用しない。
-
-            - **資金流出入の表記:**
-                - Do notMake modifications directly in this article and explain the reasons for the modifications.
-                - 「外国人投資家の資金流出」を「外国人投資家からの資金流入」と記載。
-
-            - **（金利の）先高感/先高観 の表記統一:**
-                - 文中に「先高観」という表記がある場合でも、原文は修正しないでください。
-                - その代わり、「先高観」の直後に「修正提案」として、「先高感」への統一理由を提示してください。
-                - 表記がすでに「先高感」である場合は、何も追記せずそのままにしてください。
-
-                - 表示フォーマット（例）:
-                    先高観<span style="color:red;">（修正理由: 用語の統一 <s style="background:yellow;color:red">先高観</s> → 先高感）</span>
-
-                - 必ず原文の構成と文脈を保持し、構文を壊さず、修正理由は補足的に後ろに追記してください。
-                
-            - **ポートフォリオの表記:**
-                - Make modifications directly in this article and explain the reasons for the modifications.
-                - 「●●への組み入れ（×）」ではなく、「●●の組み入れ（○）」と表記。
-                - 「への投資比率」は使用可能。
-                
-            - **構成比の0％の表記:
-                - 「0％程度」or「ゼロ％程度」の表記を使用すること
-                - 変更前表記: 構成比は0％である
-                - 統一後表記: 構成比は0％程度
-                - Append a correction reason in the following format:
-                        `<span style="color:red;">変更前表記</span> (<span>修正理由: 構成比表記 <s style="background:yellow;color:red">変更前表記</s> → 統一後表記</span>)`
-                    
-                    Example:
-                    Input: 構成比は0％である
-                    Output: 
-                    <span style="color:red;">構成比は0％である</span> 
-                    (<span>修正理由: 構成比表記 <s style="background:yellow;color:red">構成比は0％である</s> → 構成比は0％程度である。</span>)で売られています。
-
-                
-            - **'投資環境の記述:** 
-                - Make modifications directly in this article and explain the reasons for the modifications.
-                **「先月の投資環境」**の部分で「先月末」の記述が含まれる場合、「前月末」に変更してください。
-                - Ensure that the original text is directly modified and follows this guideline.
-                Example:
-                修正前: 先月末の市場動向を分析すると…
-                修正後: 前月末の市場動向を分析すると…
-
-            - **通貨表記の統一:**
-                - Standardize currency notation across the document.
-                    - The first appearance of any currency symbol (e.g., ドル, $, 円, JPY) will be the standard.
-                    - All following occurrences of that currency must match this format.
-
-                    - For example, if "100ドル" appears first, then all future "$100" will be rewritten to "100ドル" for consistency.
-                    - If "$100" appears first, then "100ドル" should be rewritten as "$100".
-
-                    - Always apply this rule in the direction of "first-appeared" format.
-                    - Append a correction reason in the following format:
-                        `<span style="color:red;">統一後表記</span> (<span>修正理由: 通貨表記の統一 <s style="background:yellow;color:red">変更前表記</s> → 統一後表記</span>)`
-                    
-                    Example:
-                    Input: このバッグは100ドルですが、アメリカでは$100で売られています。
-                    Output:
-                    このバッグは100ドルですが、アメリカでは
-                    <span style="color:red;">100ドル</span>
-                    (<span>修正理由: 通貨表記の統一 <s style="background:yellow;color:red">$100</s> → 100ドル</span>)で売られています。
-
-
-            **Preferred and Recommended Terminology (置き換えが必要な用語/表現):**
-            - **第1四半期:**
-                - Ensure the period is clearly stated.
-                - Example: 18年第4四半期（×） → 2018年10-12月期（○）
-            - **約○％程度:**
-                - Do not use "約" (approximately) and "程度" (extent) together. Choose either one.
-                - Example: 約○％程度（×） → 約○％ or ○％程度（○）
-            - **大手企業表記の明確化**  
-                **Correction Rule:**
-                - If a sentence contains vague expressions like「大手○○」, analyze the context to determine what type of company is being referred to.
-                - Rewrite it in the format:「大手○○会社」/「大手○○企業」/「大手○○メーカー」depending on the company’s nature.
-                - Use context clues (e.g., product type, industry references) to guess the appropriate company category (e.g., 不動産, 自動車, 電機, 金融).
-                - Append a correction reason in this format:
-                `<span style="color:red;">Changed Expression</span> (<span>修正理由: 表現の明確化 <s style="background:yellow;color:red">Original Expression</s> → Changed Expression</span>)`
-
-                **Example Input:**
-                - 大手は業界全体に影響力を持つ。
-                - 大手が新しい半導体を発表した。
-
-                **Example Output:**
-                - <span style="color:red;">大手不動産会社</span> (<span>修正理由: 表現の明確化 <s style="background:yellow;color:red">大手</s> → 大手不動産会社</span>) は業界全体に影響力を持つ。
-                - <span style="color:red;">大手半導体メーカー</span> (<span>修正理由: 表現の明確化 <s style="background:yellow;color:red">大手</s> → 大手半導体メーカー</span>) が新しい半導体を発表した。
-
-                **Important Notes:**
-                - Always preserve the original sentence structure and paragraph formatting.
-                - Only make corrections when「○○大手」is ambiguous and can be clarified using contextual information.
-                - Do not modify proper nouns or known company names (e.g., トヨタ, ソニー).
-
-            - **入力例:**  
-                - 「大手メーカー/会社/企業」  
-                - **出力:** 「大手不動産会社、大手半導体メーカー」  
-            - **The actual company name must be found and converted in the article
-            - **先月/前月の表記:
-                - 1ヵ月前について言及する場合は、「前月」を使用。
-            前期比○％の表記:
-
-            - **前期比年率○％:**
-                - 基本的に、期間比較の伸率は「年率」を記載してください。
-                - 主に経済統計等で一般的に前期比で年率換算されているものについては、「前期比年率○％」と表記。
-            - **第○四半期の表記:**
-                **ルール:
-                - If the input contains a format like "18年第4四半期", infer it as:
-                    - "18年" → "2018年"
-                    - "第1四半期" → "1-3月期"
-                    - "第2四半期" → "4-6月期"
-                    - "第3四半期" → "7-9月期"
-                    - "第4四半期" → "10-12月期"
-                - Modify the expression accordingly, converting the year to a 4-digit format and specifying the exact month range.
-                - Add a correction reason in this format:
-                `<span style="color:red;">修正後</span> (<span>修正理由: 四半期表記の明確化 <s style="background:yellow;color:red">修正前</s> → 修正後</span>)`
-
-                ---
-
-                **Example:**
-                - Input: 18年第4四半期の売上が好調だった。
-                - Output: 
-                <span style="color:red;">2018年10-12月期</span> (<span>修正理由: 四半期表記の明確化 <s style="background:yellow;color:red">18年第4四半期</s> → 2018年10-12月期</span>) の売上が好調だった。
-
-                ---
-
-                **Additional Notes:**
-                - Do not modify any proper names, organizations, or if the date range is already correct.
-                - Apply to all similar shorthand expressions like "20年第2四半期", "21年第1四半期" etc.
-                - Keep the structure and formatting of the original document.
-
-
-        **Special Rules:**
-        1. **Do not modify proper nouns (e.g., names of people, places, or organizations) unless they are clearly misspelled.**
-            -Exsample:
-            ベッセント氏: Since this is correct and not a misspelling, it will not be modified.
-        2. **Remove unnecessary or redundant text instead of replacing it with other characters.**
-            -Exsample:
-            ユーロ圏域内の景気委: Only the redundant character 委 will be removed, and no additional characters like の will be added. The corrected text will be: ユーロ圏域内の景気.
-        3. **Preserve spaces between words in the original text unless they are at the beginning or end of the text.**
-            -Example:
-            input: 月の 前半は米国の 債券利回りの上昇 につれて
-            Output: 月の 前半は米国の 債券利回りの上昇 につれて (spaces between words are preserved).
-
-        **Output Requirements:**
-        1. **Highlight the original incorrect text in red and include additional details:**
-        - For corrected parts:
-            - Highlight the original incorrect text in red using `<span style="color:red;">`.
-            - Append the corrected text in parentheses, marked with a strikethrough using `<s>` tags.
-            - Provide the reason for the correction and indicate the change using the format `123 → 456`.
-            - Example:
-            `<span style="color:red;">123</span> (<span>修正理由: 一致性不足 <s style="background:yellow;color:red">123</s> → 456</span>)`
-        
-        2. **Preserve the original structure and formatting of the document:**
-        - Maintain paragraph breaks, headings, and any existing structure in the content.
-
-        3. **Use the uploaded correction rules for reference:**
-        - {corrected}
-
-        4. **Do not provide any explanations or descriptions in the output. Only return the corrected HTML content.**
-
-         **Corrected Terminology Map (修正された用語リスト):
-            {corrected_map}
-        - Replace only when the **original** term in `corrected_map` appears in the input text.
-        - Do **not** replace anything if the input already contains the `corrected` term (it is already correct).
-        - Do **not** perform any reverse replacements (`corrected → original` は禁止).
-        - Modify the original text only when the `original` term is found.
-
-        - If the `corrected` term appears in the input, **do not modify it** (it is already correct).
-        - Do **not** reverse substitutions (i.e., never convert corrected → `original`).
-        
-        - After replacing, add the reason in this format:
-        Original Term (修正理由: 用語の統一 Original Term → Corrected Term)
-        Example:
-            `<span style="color:red;">Corrected Term</span> (<span>修正理由: 用語の統一 <s style="background:yellow;color:red">Original Term</s> → Corrected Term</span>)`
-        
-        Example:
-        Input: 中銀
-        Output: 
-        `<span style="color:red;">中央銀行</span> (<span>修正理由: 用語の統一 <s style="background:yellow;color:red">中銀</s> → 中央銀行</span>)`
-        ※ Note: Do **not** convert 中央銀行 → 中銀. All replacements must follow the direction from `original` to `corrected` only.
-
-        Input: 中央銀行  
-        Output:  
-        中央銀行 ← (No correction shown because it is already the correct term)
-
-        If the input already contains the corrected term, it should remain unchanged.
-        For English abbreviations or foreign terms, the rule is the same: replace the original term with the corrected term and format as follows:
-        Example:
-        Input: BOE
-        Output: <span style="color:red;">BOE（英中央銀行、イングランド銀行）</span> (<span>修正理由: 英略語 <s style="background:yellow;color:red">BOE</s> → BOE（英中央銀行、イングランド銀行）</span>)
-        Input: AAA
-        Output: <span style="color:red;">AAA（全米自動車協会）</span> (<span>修正理由: 英略語 <s style="background:yellow;color:red">AAA</s> → AAA（全米自動車協会）</span>)
-
-        Input: インバウンド
-        Output: <span style="color:red;">インバウンド（観光客の受け入れ）</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">インバウンド</s> → インバウンド（観光客の受け入れ）</span>)
-
-        
-        **Except Original Term
-        Input: 等
-        Output: 
-        `<span style="color:red;">等</span> (<span>修正理由: 用語/表現 <s style="background:yellow;color:red">等</s> → など</span>)`
-
-        Input: ローン
-        Output: 
-        `<span style="color:red;">ローン</span> (<span>修正理由: 用語/表現 <s style="background:yellow;color:red">ローン</s> → 貸し付け</span>)`
-                            
-        Input: ％を上回る
-        Output: 
-        `<span style="color:red;">％を上回る</span> (<span>修正理由: 用語/表現 <s style="background:yellow;color:red">％を上回る</s> → ％を超える</span>)`
-                            
-        Input: ％を下回る
-        Output: 
-        `<span style="color:red;">％を下回る</span> (<span>修正理由: 用語/表現 <s style="background:yellow;color:red">％を下回る</s> → ％を下回るマイナス幅</span>)`
-        
-        Input: 伝播（でんぱ）
-        Output: 
-        `<span style="color:red;">伝播（でんぱ）</span> (<span>修正理由: 用語の置き換え <s style="background:yellow;color:red">伝播（でんぱ）</s> → 広ります</span>)`
-        
-        Input: 伝播しています
-        Output:
-        `<span style="color:red;">伝播しています</span> (<span>修正理由: 用語の置き換え <s style="background:yellow;color:red">伝播しています</s> → 広がるしています</span>)`
-        
-        Input: 連れ高
-        Output:
-        `<span style="color:red;">連れ高</span> (<span>修正理由: 用語の置き換え <s style="background:yellow;color:red">連れ高</s> → 影響を受けて上昇</span>)`
-        
-        Input: 相場
-        Output:
-        `<span style="color:red;">相場</span> (<span>修正理由: 用語の置き換え <s style="background:yellow;color:red">相場</s> → 市場/価格</span>)`
-        
-        Input: ハト派
-        Output:
-        `<span style="color:red;">ハト派</span> (<span>修正理由: 用語の置き換え <s style="background:yellow;color:red">ハト派</s> → 金融緩和重視、金融緩和に前向き</span>)`
-        
-        Input: タカ派
-        Output:
-        `<span style="color:red;">タカ派</span> (<span>修正理由: 用語の置き換え <s style="background:yellow;color:red">タカ派</s> → 金融引き締め重視、金融引き締めに積極的</span>)`
-        
-        Input: 織り込む
-        Output: 
-        `<span style="color:red;">織り込む</span> (<span>修正理由: 用語の置き換え <s style="background:yellow;color:red">織り込む</s> → 反映され</span>)`
-        
-        Input: 積極姿勢とした
-        Output: 
-        `<span style="color:red;">積極姿勢とした</span> (<span>修正理由: 用語/表現 <s style="background:yellow;color:red">積極姿勢とした</s> → 長めとした</span>)`
-        
-        Input: 限定的
-        Output: 
-        `<span style="color:red;">限定的</span> (<span>修正理由: 効果や影響がプラスかマイナスか不明瞭なため <s style="background:yellow;color:red">限定的</s> → 他の適切な表現に修正</span>)`
-        
-        Input: 利益確定の売り
-        Output: 
-        `<span style="color:red;">利益確定の売り</span> (<span>修正理由: 断定的な表現では根拠が説明できないため <s style="background:yellow;color:red">利益確定の売り</s> → が出たとの見方</span>)`
-        
-        Input: 利食い売り
-        Output: 
-        `<span style="color:red;">利食い売り</span> (<span>修正理由: 断定的な表現では根拠が説明できないため <s style="background:yellow;color:red">利食い売り</s> → が出たとの見方</span>)`
-        
-        Input: ABS
-        Output: 
-        `<span style="color:red;">ABS</span> (<span>修正理由: 英略語 <s style="background:yellow;color:red">ABS</s> → ABS（資産担保証券、各種資産担保証券）</span>)`
-        
-        Input: AI
-        Output: 
-        `<span style="color:red;">AI</span> (<span>修正理由: 英略語 <s style="background:yellow;color:red">AI</s> → AI（人工知能</span>)`
-        
-        Input: BRICS（5ヵ国）
-        Output: 
-        `<span style="color:red;">BRICS（5ヵ国）</span> (<span>修正理由: 英略語 <s style="background:yellow;color:red">BRICS（5ヵ国）</s> → BRICS（ブラジル、ロシア、インド、中国、南アフリカ）</span>)`
-        
-        Input: CMBS
-        Output: 
-        `<span style="color:red;">CMBS</span> (<span>修正理由: 英略語 <s style="background:yellow;color:red">CMBS</s> → CMBS（商業用不動産ローン担保証券）</span>)`
-        
-        Input: ISM
-        Output: 
-        `<span style="color:red;">ISM</span> (<span>修正理由: 英略語 <s style="background:yellow;color:red">ISM</s> → ISM（全米供給管理協会）</span>)`
-        
-        Input: IT
-        Output: 
-        `<span style="color:red;">IT</span> (<span>修正理由: 英略語 <s style="background:yellow;color:red">IT</s> → IT（情報技術）</span>)`
-        
-        Input: MBS
-        Output: 
-        `<span style="color:red;">MBS</span> (<span>修正理由: 英略語 <s style="background:yellow;color:red">MBS</s> → MBS（住宅ローン担保証券）</span>)`
-        
-        Input: PMI
-        Output: 
-        `<span style="color:red;">PMI</span> (<span>修正理由: 英略語 <s style="background:yellow;color:red">PMI</s> → PMI（購買担当者景気指数）</span>)`
-        
-        Input: S&P
-        Output: 
-        `<span style="color:red;">S&P</span> (<span>修正理由: 英略語 <s style="background:yellow;color:red">S&P</s> → S&P（スタンダード・アンド・プアーズ）社</span>)`
-        
-        Input: アセットアロケーション
-        Output: 
-        `<span style="color:red;">アセットアロケーション</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">アセットアロケーション</s> → アセットアロケーション（資産配分）</span>)`
-        
-        Input: E-コマース
-        Output: 
-        `<span style="color:red;">Eコマース</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">E-コマース</s> → Eコマース（電子商取引）</span>)`
-             
-        Input: e-コマース
-        Output: 
-        `<span style="color:red;">eコマース</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">eコマース</s> → eコマース（電子商取引）</span>)`
-           
-        Input: EC
-        Output: 
-        `<span style="color:red;">EC（電子商取引）</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">EC</s> → EC（電子商取引）</span>)`
-        
-        Input: イールドカーブ
-        Output: 
-        `<span style="color:red;">イールドカーブ</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">イールドカーブ</s> → イールドカーブ（利回り曲線）</span>)`
-        
-        Input: エクスポージャー
-        Output: 
-        `<span style="color:red;">エクスポージャー</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">エクスポージャー</s> → ＊積極的に使用しない。　（価格変動リスク資産の配分比率、割合）</span>)`
-        
-        Input: クレジット（信用）市場
-        Output: 
-        `<span style="color:red;">クレジット（信用）市場</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">クレジット（信用）市場</s> → 信用リスク（資金の借り手の信用度が変化するリスク）を内包する商品（クレジット商品）を取引する市場の総称。　企業の信用リスクを取引する市場。</span>)`
-        
-        Input: システミック・リスク
-        Output: 
-        `<span style="color:red;">システミック・リスク</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">システミック・リスク</s> → 個別の金融機関の支払不能等や、特定の市場または決済システム等の機能不全が、他の金融機関、他の市場、または金融システム全体に波及するリスク</span>)`
-        
-        Input: ディストレス債券
-        Output: 
-        `<span style="color:red;">ディストレス債券</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">ディストレス債券</s> → 信用事由などにより、価格が著しく下落した債券</span>)`
-        
-        Input: ディフェンシブ
-        Output: 
-        `<span style="color:red;">ディフェンシブ</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">ディフェンシブ</s> → ディフェンシブ（景気に左右されにくい）</span>)`
-        
-        Input: テクニカル
-        Output: 
-        `<span style="color:red;">テクニカル</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">テクニカル</s> → テクニカル（過去の株価の動きから判断すること</span>)`
-        
-        Input: デフォルト
-        Output: 
-        `<span style="color:red;">デフォルト</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">デフォルト</s> → デフォルト（債務不履行）</span>)`
-        
-        Input: デフォルト債
-        Output: 
-        `<span style="color:red;">デフォルト債</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">デフォルト債</s> → デフォルトとは一般的には債券の利払いおよび元本返済の不履行、もしくは遅延などをいい、このような状態にある債券をデフォルト債といいます。</span>)`
-        
-        Input: デュレーション
-        Output: 
-        `<span style="color:red;">デュレーション</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">デュレーション</s> → デュレーション（金利感応度）</span>)`
-        
-        Input: 投資適格債
-        Output: 
-        `<span style="color:red;">投資適格債</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">投資適格債</s> → 格付機関によって格付けされた公社債のうち、債務を履行する能力が十分にあると評価された公社債</span>)`
-        
-        Input: ファンダメンタルズ
-        Output: 
-        `<span style="color:red;">ファンダメンタルズ</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">ファンダメンタルズ</s> → ファンダメンタルズ（賃料や空室率、需給関係などの基礎的条件）※REITファンドで使用する</span>)`
-        
-        Input: フリーキャッシュフロー
-        Output: 
-        `<span style="color:red;">フリーキャッシュフロー</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">フリーキャッシュフロー</s> → 税引後営業利益に減価償却費を加え、設備投資額と運転資本の増加を差し引いたもの</span>)`
-        
-        Input: ベージュブック
-        Output: 
-        `<span style="color:red;">ベージュブック</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">ベージュブック</s> → スペースがない場合は、ベージュブック（米地区連銀経済報告）</span>)`
-        
-        Input: モメンタム
-        Output: 
-        `<span style="color:red;">モメンタム</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">モメンタム</s> →  相場の勢い)が強く、投資家たちは短期的な利益を狙っています。</span>)`
-        
-        Input: リオープン
-        Output: 
-        `<span style="color:red;">リオープン</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">リオープン</s> → リオープン/リオープニング（経済活動再開）</span>)`
-        
-        Input: リスクプレミアム
-        Output: 
-        `<span style="color:red;">リスクプレミアム</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">リスクプレミアム</s> → 同じ投資期間内において、あるリスク資産の期待収益率が、無リスク資産（国債など）の収益率を上回る幅のこと。</span>)`
-        
-        Input: リフレーション
-        Output: 
-        `<span style="color:red;">リフレーション</span> (<span>修正理由: 外来語・専門用語 <s style="background:yellow;color:red">リフレーション</s> → リフレーション**デフレーションから抜けて、まだ、インフレーションにはなっていない状況のこと。</span>)`
-        
-        **【例外用語 – 修正しないこと】**
-        - コロナ禍
-        - コロナショック
-        - 新型コロナ禍
-        - 住宅ローン
-        - 引き締め策
-        - 引き締め政策
-        - 組入比率
-        - 格付機関
-        - 格付別
-        - 国債買入オペ
-
-        **特定表現の言い換えルール（文脈判断を伴う修正）:
-        文脈に応じて、具体的な表現に言い換えてください。
-        「まちまち」の使用
-        「まちまち」という曖昧な表現が出現した場合は、その語をそのまま保持した上で、後に「修正理由: 曖昧表現の明確化」を補足してください。
-
-        変換語「異なる動き」も表示しますが、原文は変更せず、装飾で示すのみです。
-
-        Output Format (Original term preserved, only correction reason shown):
-        <span style="color:red;">まちまち</span>
-        (<span>修正理由: 曖昧表現の明確化 <s style="background:yellow;color:red">まちまち</s> → 異なる動き</span>)
-
-        -「行って来い」の表現
-
-        文脈に応じて、「上昇（下落）したのち下落（上昇）」のように明確にしてください。
-        Exsample:
-
-        Input: 相場は行って来いの展開となった
-        Output: 相場は上昇したのち下落する展開となった
-        
-        変換語「行って来い」も表示しますが、原文は変更せず、装飾で示すのみです。
-
-        Output Format (Original term preserved, only correction reason shown):
-        
-        修正理由: 表現の明確化
-        <span style="color:red;">行って来い</span> (<span>修正理由: 表現の明確化 <s style="background:yellow;color:red">Original Term</s> → 行って来い</span>)
-
-        -「横ばい」表現の適正使用
-
-        小幅な変動であれば「横ばい」を使用可能。
-        大きな変動の末に同水準で終了した場合は、「ほぼ変わらず」「同程度となる」などに修正。
-        
-        変換語「横ばい」も表示しますが、原文は変更せず、装飾で示すのみです。
-        Output Format (Original term preserved, only correction reason shown):
-
-        修正理由: 用語の適正使用
-        <span style="color:red;">横ばい</span> (<span>修正理由: 用語の適正使用 <s style="background:yellow;color:red">横ばい</s> → ほぼ変わらず</span>)
-
-        -「（割安に）放置」表現の修正
-
-        「割安感のある」など、より適切な表現に修正してください。
-
-        Exsample:
-        Input: 株価は割安に放置された
-        Output: 株価には割安感がある状態が続いた
-
-        変換語「（割安に）放置」も表示しますが、原文は変更せず、装飾で示すのみです。
-        Output Format (Original term preserved, only correction reason shown):
-
-        修正理由: 表現の明確化と客観性の向上
-        <span style="color:red;">（割安に）放置</span> (<span>修正理由: 表現の明確化と客観性の向上 <s style="background:yellow;color:red"（割安に）放置</s> → 割安感のある</span>)
-
-        """  
-        # ChatCompletion Call
-        response = openai.ChatCompletion.create(
-        # OpenAI API 调用 asyncio
-        # loop = asyncio.get_event_loop()
-        # response = await loop.run_in_executor(None, lambda: openai.ChatCompletion.create(
-            deployment_id=deployment_id,  # Deploy Name
-            messages=[
-                {"role": "system", "content": "You are a professional Japanese text proofreading assistant."
-                "This includes not only Japanese text but also English abbreviations (英略語), "
-                "foreign terms (外来語),and specialized terminology (専門用語)."},
-                {"role": "user", "content": prompt_result}
-            ],
-            max_tokens=MAX_TOKENS,
-            temperature=TEMPERATURE,
-            seed=SEED
-        )
-        answer = response['choices'][0]['message']['content'].strip()
-        re_answer = remove_code_blocks(answer)
-        
-        return jsonify({"success": True, "corrected_text": re_answer})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
 
 def convert_logs(items):
     converted_data = {
@@ -2825,6 +1633,8 @@ def check_upload():
     return jsonify({"success": False, "error": "Invalid file type"}), 400
 
 
+
+
 # 5007 debug
 def remove_correction_blocks(html_text):
     pattern = re.compile(
@@ -3414,6 +2224,7 @@ def opt_check_ruru1(content, rules):
         escaped_v = regcheck.escape(full_key)
 
         new_k = escaped_k
+        # === 原有逻辑完全保留 ===
         if raw_key.isalpha() or raw_key in ["S&L", "M&A"]:
             if raw_key == "OPEC":
                 new_k = f"(?<![a-zA-Z]){escaped_k}(?!プラス|[a-zA-Z])"
@@ -3435,7 +2246,6 @@ def opt_check_ruru1(content, rules):
                 new_k = f"(?<!薄){escaped_k}"
             else:
                 new_k = f"(?<![a-zA-Z]){escaped_k}(?![a-zA-Z])"
-        #  中銀
         elif raw_key == "中銀":
             matches = regcheck.finditer(escaped_v, content)
             exclude = False
@@ -3450,7 +2260,7 @@ def opt_check_ruru1(content, rules):
             else:
                 full_match = regcheck.search(escaped_v, content)
 
-            
+        # === 匹配搜索 ===
         raw_match = regcheck.search(new_k, content)
         full_match = regcheck.search(escaped_v, content)
 
@@ -3463,7 +2273,6 @@ def opt_check_ruru1(content, rules):
 
         if raw_match:
             result.append({raw_key: full_key})
-        
     return result
 
 def keyword_pair_exists(content, keyword_a, keyword_b):
@@ -3633,33 +2442,8 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
                 "locations": [],
                 "intgr": False,
             })
-#-------------------
-    # 年度
-    # if fund_type == 'public':
-    #     cleaned_text = regcheck.sub(r'\n\s*', '', input_text)
-    #     date_pattern = r'(?<!\d{4}年)(\d{1,2})月(\d{1,2})日'
 
-    #     for match in regcheck.finditer(date_pattern, cleaned_text):
-    #         date_str = match.group(0)               # '4月30日'
-    #         date_pos = match.start()            
-    #         full_date = insert_year_by_regex(date_str, cleaned_text, date_pos)
-    #         half_date = year_half_dict(full_date)
 
-    #         context_pattern = r'.{0,8}' + regcheck.escape(date_str)
-    #         context_match = regcheck.search(context_pattern, cleaned_text)
-    #         original_text = context_match.group() if context_match else date_str
-
-    #         comment = f"{original_text} → {half_date}"
-    #         corrections.append({
-    #             "page": pageNumber,
-    #             "original_text": original_text,
-    #             "comment": comment,
-    #             "reason_type": '年度用語の統一',
-    #             "check_point": '年度用語の統一',
-    #             "locations": [],
-    #             "intgr": False,  # for debug
-    #         })
-#-------------------
     # 英略词
     if fund_type == 'public':
         results = opt_check_eng(input_text, replace_rules)
@@ -3815,13 +2599,23 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
                 "reason_type": item.get("分類", "")
             })
 
-#---------------------
-# dotfind 句点の追加  句読点  
     for sentence in input_list:
+        # ----------- 安全清理 ----------
+        # 去除首尾空格、制表符、多余换行
+        sentence = re.sub(r"[\r\n\t]+", " ", sentence).strip()
+        # 多个连续空格合并为一个
+        sentence = re.sub(r"\s{2,}", " ", sentence)
+
+        # 「（出所）」がある文はスキップ（既知除外条件）
         if "（出所）" in sentence:
             continue
+        if "市場環境" in sentence:
+            continue
 
+        # ----------- 句点追加チェック ----------
+        # 如果句尾没有 "。"（全角句点），则追加建议
         if not check_fullwidth_period(sentence):
+            # 取句尾30字符便于人工确认
             sentence_split = re.sub(r"\s+$", "", sentence)[-30:]
             corrections.append({
                 "check_point": "句点の追加",
@@ -3832,42 +2626,84 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
                 "page": pageNumber,
                 "reason_type": "句点の追加",
             })
-#--------------------add--0905--
-            # 主語欠落を検知する正規表現 pattern
-            # 「〜と示唆した」 の直前に「が|は」などの主語 
-            pattern = r"([^、。]+?と示唆した)"
 
-            matches = re.finditer(pattern, input_text)
+    # ==========================================================
+    # 主語欠落（例：「〜と示唆した」前に「が」「は」など主語欠如）
+    # ==========================================================
 
-            for match in matches:
-                original_text = match.group(0)
-                # 修正案: 「同社が〜ことを示唆した」
-                corrected_text_re = f"同社が{match.group(1)}ことを示唆した"
-                reason_type = "主語の欠落"
+    # 主体検出対象テキスト全体を標準化
+    input_text = re.sub(r"[\r\n\t]+", " ", input_text)
+    input_text = re.sub(r"\s{2,}", " ", input_text).strip()
 
-                comment = f"{reason_type}: {original_text} → {corrected_text_re}"
+    # 正規表現パターン： 「〜と示唆した」前に主語がない文を検出
+    pattern = r"([^、。]*?)(?<!が)(?<!は)(?<!を)(と示唆した)"
 
-                corrections.append({
-                    "page": pageNumber,
-                    "original_text": original_text,
-                    "comment": comment,
-                    "reason_type": reason_type,
-                    "check_point": reason_type,
-                    "locations": [],   # 必要なら位置情報を追加
-                    "intgr": False,
-                })
-#--------------------
+    matches = re.finditer(pattern, input_text)
+
+    for match in matches:
+        original_text = match.group(0).strip()
+        # 修正版：「同社が〜ことを示唆した」
+        corrected_text_re = f"同社が{match.group(1)}ことを示唆した"
+        reason_type = "主語の欠落"
+        comment = f"{reason_type}: {original_text} → {corrected_text_re}"
+
+        corrections.append({
+            "page": pageNumber,
+            "original_text": original_text,
+            "comment": comment,
+            "reason_type": reason_type,
+            "check_point": reason_type,
+            "locations": [],
+            "intgr": False,
+        })
+#-------------------------------
+
     return corrections
 
-def extract_text(input_text, original_text):
-    pattern = rf"{original_text}（[^）]*）|{original_text}"
+# def extract_text(input_text, original_text):
+#     pattern = rf"{original_text}（[^）]*）|{original_text}"
 
-    match = regcheck.search(pattern, input_text)
+#     match = regcheck.search(pattern, input_text)
     
+#     if match:
+#         return match.group(0)
+#     else:
+#         return None
+
+def extract_text(input_text, original_text):
+    """
+    从 input_text 中抽取 original_text 或其带括号版本。
+    - 对「行う」「行い」「行った」等送り仮名欠落系列，进行宽松匹配（允许括号、全角空格），匹配不到时返回原文；
+    - 对其他词维持原逻辑，匹配不到则返回 None。
+    """
+    if not original_text:
+        return None
+
+    # 送り仮名欠落系列关键词
+    # okuri_targets = ["行う", "行い", "行って", "行った", "行われ", "行われる", "行わない"]
+
+    # # === 针对送り仮名系列，放宽匹配条件 ===
+    # if any(word in original_text for word in okuri_targets):
+    #     safe_text = regcheck.escape(original_text)
+    #     # 允许：后面带（全角括号内容）或空格
+    #     pattern = rf"{safe_text}(（[^）]*）)?[ 　]?"
+    #     match = regcheck.search(pattern, input_text)
+    #     if match:
+    #         return match.group(0)
+    #     else:
+    #         # fallback：匹配不到也返回原词，以避免 original_text 为 None
+    #         return original_text
+
+    # === 其他情况维持原逻辑 ===
+    pattern = rf"{original_text}（[^）]*）|{original_text}"
+    match = regcheck.search(pattern, input_text)
     if match:
         return match.group(0)
     else:
         return None
+
+
+
 
 def clean_percent_prefix(value: str):
     if not isinstance(value, str):
@@ -3938,15 +2774,42 @@ def extract_corrections(corrected_text, input_text,pageNumber):
 
     return corrections
 
-    
-def add_comments_to_pdf(pdf_bytes, corrections):
+def add_comments_to_pdf(pdf_bytes, corrections, fund_type):
+    """
+    给 PDF 添加批注并高亮对应文本区域。
+
+    Args:
+        pdf_bytes (bytes): PDF 文件的二进制内容。
+        corrections (list): 批注信息列表。
+        fund_type (str): 基金类型（传入 get_words 用）。
+
+    Returns:
+        BytesIO: 含批注的 PDF。
+    """
+
     if not isinstance(pdf_bytes, bytes):
         raise ValueError("pdf_bytes must be a bytes object.")
     if not isinstance(corrections, list):
         raise ValueError("corrections must be a list of dictionaries.")
+
+    # === 新增：调用 get_words() 进行文本预处理 ===
+    corrections = get_words(corrections, fund_type)
+    # ============================================
+
     for correction in corrections:
         if not all(key in correction for key in ["page", "original_text", "comment"]):
             raise ValueError("Each correction must contain 'page', 'original_text', and 'comment' keys.")
+
+    # ========= 去重逻辑 =========
+    seen = set()
+    unique_corrections = []
+    for c in corrections:
+        key = (c["page"], c["original_text"], c["comment"])
+        if key not in seen:
+            seen.add(key)
+            unique_corrections.append(c)
+    corrections = unique_corrections
+    # ===========================
 
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -3956,28 +2819,30 @@ def add_comments_to_pdf(pdf_bytes, corrections):
     for idx, correction in enumerate(corrections):
         page_num = correction["page"]
         comment = correction["comment"]
-        reason_type = correction["reason_type"]
+        reason_type = correction.get("reason_type", "NoType")
 
         if page_num < 0 or page_num >= len(doc):
             raise ValueError(f"Invalid page number: {page_num}")
 
         page = doc.load_page(page_num)
-    
-        # Set color based on intgr flag
-        if correction["intgr"]:
-            colorSetFill = (172/255, 228/255, 230/255)  # Light blue
+
+        # 根据 intgr 设置颜色
+        if correction.get("intgr"):
+            colorSetFill = (172/255, 228/255, 230/255)  # 浅蓝
         else:
-            colorSetFill = (1, 1, 0)  # Yellow
+            colorSetFill = (1, 1, 0)  # 黄色
 
-        for locations in correction["locations"]:
-            rect = fitz.Rect(locations["x0"], locations["y0"], locations["x1"],
-            locations["y1"])
+        for locations in correction.get("locations", []):
+            rect = fitz.Rect(
+                locations["x0"], locations["y0"],
+                locations["x1"], locations["y1"]
+            )
 
-            # Skip if x-coordinate is 0
+            # 忽略无效坐标
             if int(rect[0]) == 0:
                 continue
 
-            # Create and configure the annotation
+            # 创建高亮注释
             highlight = page.add_rect_annot(rect)
             highlight.set_colors(stroke=None, fill=colorSetFill)
             highlight.set_opacity(0.5)
@@ -3987,12 +2852,14 @@ def add_comments_to_pdf(pdf_bytes, corrections):
             })
             highlight.update()
 
+    # 输出结果
     output = io.BytesIO()
     doc.save(output)
     output.seek(0)
     doc.close()
 
     return output
+
 
 
 def add_comments_to_excel(excel_bytes, corrections):
@@ -4018,68 +2885,150 @@ def add_comments_to_excel(excel_bytes, corrections):
     output.seek(0)
     return output
 
-# pre processing
-def normalize_text_for_search(text: str) -> str:
-    import re
+# # pre processing
+# def normalize_text_for_search(text: str) -> str:
+#     import re
+#     replacements = {
+#         "（": "(", "）": ")", "【": "[", "】": "]",
+#         "「": "\"", "」": "\"", "『": "\"", "』": "\"",
+#         "　": " ", "○": "〇", "・": "･", 
+#         "–": "-", "―": "-", "−": "-", "ー": "-"
+#     }
+#     for k, v in replacements.items():
+#         text = text.replace(k, v)
+#     text = text.replace("\n", " ").replace("\r", " ")
+#     text = re.sub(r"[\u200b\u200c\u200d\u00a0]", "", text)
+#     return re.sub(r"\s+", " ", text).strip()
+
+
+# 251024 changed find location logic
+def _normalize_text(text: str) -> str:
+    if not text:
+        return ""
+    # 1️⃣ NFKC 正规化（全角→半角，统一符号形态）
+    text = unicodedata.normalize("NFKC", text)
+    # 2️⃣ 字符替换表（来自 normalize_text_for_search）
     replacements = {
         "（": "(", "）": ")", "【": "[", "】": "]",
         "「": "\"", "」": "\"", "『": "\"", "』": "\"",
-        "　": " ", "○": "〇", "・": "･", 
-        "–": "-", "―": "-", "−": "-", "ー": "-"
+        "　": " ", "○": "〇", "・": "･",
+        "–": "-", "―": "-", "−": "-", "ー": "-",
+        "％": "%", "，": ",", "．": ".", "：": ":", "；": ";",
     }
     for k, v in replacements.items():
         text = text.replace(k, v)
     text = text.replace("\n", " ").replace("\r", " ")
     text = re.sub(r"[\u200b\u200c\u200d\u00a0]", "", text)
-    return re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
-#0617 debug
+def _normalize_text(text: str) -> str:
+    """
+    文本标准化（用于 PDF 搜索精确匹配）
+    结合 normalize_text_for_search 规则：
+      - 全角/半角统一
+      - 删除多余空白和零宽字符
+      - 替换常见日文符号
+    """
+    if not text:
+        return ""
+    text = unicodedata.normalize("NFKC", text)
+    replacements = {
+        "（": "(", "）": ")", "【": "[", "】": "]",
+        "「": "\"", "」": "\"", "『": "\"", "』": "\"",
+        "　": " ", "○": "〇", "・": "･",
+        "–": "-", "―": "-", "−": "-", "ー": "-",
+        "％": "%", "，": ",", "．": ".", "：": ":", "；": ";",
+    }
+    for k, v in replacements.items():
+        text = text.replace(k, v)
+    text = text.replace("\n", " ").replace("\r", " ")
+    text = re.sub(r"[\u200b\u200c\u200d\u00a0]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 def find_locations_in_pdf(pdf_bytes, corrections):
+    """
+    改进版：基于 page.get_text("blocks") 的跨行文本查找。
+    可识别被换行或分块的 original_text。
+    """
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception as e:
-        raise ValueError(f"Invalid PDF file: {str(e)}")
+        raise ValueError(f"无效 PDF 文件: {str(e)}")
 
     for idx, correction in enumerate(corrections):
         page_num = correction.get("page", 0)
-        original_text = correction["original_text"]
+        original_text = str(correction.get("original_text", "")).strip()
 
-        if page_num < 0 or page_num >= len(doc):
-            print(f"Warning: Invalid page number: {page_num}")
+        # 无效页码或空文本 → 返回占位
+        if not original_text or page_num < 0 or page_num >= len(doc):
+            correction["locations"] = [{"x0": 0, "y0": 0, "x1": 0, "y1": 0}]
             continue
 
         page = doc[page_num]
         found_locations = []
-        # pre processing
-        text_instances = page.search_for(original_text)
 
-        if not text_instances:
-            print(f"Warning: Text '{original_text}' not found on page {page_num}.")
+        # 获取页面上的所有文本块
+        blocks = page.get_text("blocks")
+
+        matched = False
+        for b in blocks:
+            block_text = b[4].replace("\n", "")
+            # --- 精确包含匹配 ---
+            if original_text in block_text:
+                found_locations.append({
+                    "x0": b[0],
+                    "y0": b[1],
+                    "x1": b[2],
+                    "y1": b[3]
+                })
+                matched = True
+            # --- 模糊匹配：处理折行或断块 ---
+            elif len(original_text) > 20:
+                head = original_text[:15]
+                tail = original_text[-15:]
+                if head in block_text or tail in block_text:
+                    found_locations.append({
+                        "x0": b[0],
+                        "y0": b[1],
+                        "x1": b[2],
+                        "y1": b[3]
+                    })
+                    matched = True
+
+        # 如果上述方式未找到，再尝试原始 search_for 兜底
+        if not matched:
+            text_instances = page.search_for(original_text)
+            if text_instances:
+                for inst in text_instances:
+                    rect = fitz.Rect(inst)
+                    found_locations.append({
+                        "x0": rect.x0,
+                        "y0": rect.y0,
+                        "x1": rect.x1,
+                        "y1": rect.y1
+                    })
+                matched = True
+
+        # 如果仍未找到，则记录 0 坐标
+        if not matched:
+            print(f"Warning: Text '{original_text[:20]}...' not found on page {page_num}.")
             found_locations.append({
                 "x0": 0,
                 "y0": 0,
                 "x1": 0,
                 "y1": 0
             })
-            
-        else:
-            for inst in text_instances:
-                rect = fitz.Rect(inst)
-                found_locations.append({
-                    "x0": rect.x0,
-                    "y0": rect.y0,
-                    "x1": rect.x1,
-                    "y1": rect.y1
-                })
-
+        # 写回 corrections
         if "locations" not in corrections[idx]:
             corrections[idx]["locations"] = []
         corrections[idx]["locations"].extend(found_locations)
 
     doc.close()
     return corrections
-
 
 # db and save blob
 PUBLIC_FUND_CONTAINER_NAME = "public_Fund"
@@ -4386,415 +3335,6 @@ def apply_manual_corrections(text, correction_map):
     #         text = text.replace(old_text, new_text)
     return result
 
-def gpt_correct_text(prompt):
-    token = token_cache.get_token()
-    openai.api_key = token
-    print("✅ Token Update SUCCESS")
-    
-    if not prompt.strip():
-        return prompt
-    hyogaiKanjiList = []
-    
-    corrected_text = detect_hyogai_kanji(prompt, hyogaiKanjiList)
-    prompt_result = f"""
-    You are a professional Japanese text proofreading assistant. Please carefully proofread the following Japanese text and provide corrections in a structured `corrected_map` format.
-
-    **Text to Proofread:**
-    - {prompt}
-
-    **Proofreading Requirements:**
-    1. **Check for typos and missing characters (誤字脱字がないこと):**
-    - Ensure there are no spelling errors or missing characters in the content of the report.
-    - If errors are found, add them to the `corrected_map` in the format: "incorrect": "correct".
-
-    2. **Follow the Fund Manager Comment Terminology Guide (ファンドマネージャコメント用語集に沿った記載となっていること):**
-    - **Consistent Terminology (表記の統一):**
-        - Ensure the writing format of terms is consistent throughout the report.
-    - **Prohibited Words and Phrases (禁止（NG）ワード及び文章の注意事項):**
-        - Check if any prohibited words or phrases are used in the report and correct them as per the guidelines.
-    - **Replaceable and Recommended Terms/Expressions (置き換えが必要な用語/表現、置き換えを推奨する用語/表現):**
-        - If you find terms or expressions that need to be replaced, revise them according to the provided rules.
-    - **Use of Hiragana (ひらがなを表記するもの):**
-        - Ensure the report follows the rules for hiragana notation, replacing content that does not conform to commonly used kanji.
-    - **Kana Notation for Non-Standard Kanji (一部かな書き等で表記するもの):**
-        - Ensure non-standard kanji are replaced with kana as the standard writing format.
-    - **Correct Usage of Okurigana (一般的な送り仮名など):**
-        - Ensure the correct usage of okurigana is applied.
-    - **English Abbreviations, Loanwords, and Technical Terms (英略語、外来語、専門用語など):**
-        - Check if English abbreviations, loanwords, and technical terms are expressed correctly.
-    - **Identify and mark any 常用外漢字 (Hyōgai kanji):**
-        - Identify and mark any 常用外漢字 (Hyōgai kanji) in the following text.
-        - 常用外漢字 refers to Chinese characters that are not included in the [常用漢字表 (Jōyō kanji list)](https://ja.wikipedia.org/wiki/常用漢字), the official list of commonly used kanji in Japan.
-        - For any 常用外漢字 identified, mark the character with (常用外漢字) next to it.
-
-        1. 入力された全文（Report Content to Proofread）を **一文字ずつ** 走査してください（単語単位ではなく文字単位の照合です）。
-        2. 各文字を、指定された hyogaiKanjiList の文字と **完全一致** で比較してください。
-        3. 一致する文字がある場合、その文字を「常用外漢字」として検出してください。
-        4. 一致しない文字は、常用漢字として無視してください（誤検出を避けるため）。
-        5. 検出された常用外漢字は、以下のフォーマットで注釈をつけて表示してください。
-
-        ---
-
-        【注釈フォーマット】
-
-        次のように、元の漢字に <s> タグと背景色を付け、読みまたは代替語を赤字で示し、その後に理由を添えてください。
-
-        例:
-        <span style="color:red;">ぜい</span> (<span>修正理由: 常用外漢字の使用 <s style="background:yellow;color:red">脆</s> → ぜい</span>)
-
-        ---
-
-        【Report Content to Proofread】:
-        {corrected_text}
-
-        **1: Typographical Errors (脱字・誤字) Detection**
-            -Detect any missing characters (脱字) or misused characters (誤字) that cause unnatural expressions or misinterpretation.
-
-            **Proofreading Requirements**:
-            - Detect and correct all genuine missing characters (脱字) or misused characters (誤字) that cause grammatical errors or change the intended meaning.
-            - Always detect and correct any incorrect conjugations, misused readings, or wrong kanji/verb usage, even if they superficially look natural.
-            - Do not point out stylistic variations, natural auxiliary expressions, or acceptable conjugations unless they are grammatically incorrect.
-            - Confirm that each kanji matches the intended meaning precisely.
-            - Detect cases where non-verb terms are incorrectly used as if they were verbs.
-
-            - ”と”を脱字しました:
-                -Example:
-                input: 月間ではほぼ変わらずなりました。
-                output:
-                <span style="color:red;">月間ではほぼ変わらずなりました。</span> (<span>修正理由: 誤字 <s style="background:yellow;color:red">月間ではほぼ変わらずなりました。</s> → 月間ではほぼ変わらずとなりました。</span>)
-            - The kanji '剤' was incorrectly used instead of '済', resulting in a wrong word formation.
-                -Example:
-                input: 経剤成長
-                output:
-                <span style="color:red;">経済成長</span> (<span>修正理由: 誤字 <s style="background:yellow;color:red">経剤成長</s> → 経済成長</span>)
-            - The verb "遊ぶ" was incorrectly conjugated into a non-existent form "あそぼれる" instead of the correct passive form "あそばれる".
-                -Example:
-                input: あそぼれますか。
-                output:
-                <span style="color:red;">あそばれますか。</span> (<span>修正理由: 動詞活用の誤り <s style="background:yellow;color:red">あそぼれますか。</s> → あそばれますか。</span>)
-            - "と"を省略したら、「アンダーウェイト」は名詞であり、動詞のように「〜した」と活用するのは文法的に誤りです。
-                -Example:
-                input: アンダーウェイト（参考指数と比べ低めの投資比率）した
-                output:
-                <span style="color:red;">アンダーウェイト（参考指数と比べ低めの投資比率）とした</span> (<span>修正理由: 動詞活用の誤り <s style="background:yellow;color:red">アンダーウェイト（参考指数と比べ低めの投資比率）した</s> → アンダーウェイト（参考指数と比べ低めの投資比率）とした</span>)
-
-
-            **correct Example*:
-            - "取り組みし"は自然な連用形表現のため、修正不要'
-                -Example:
-                input: グローバルで事業を展開する
-                output:
-                <span style="color:red;">グローバルに事業を展開する</span> (<span>修正理由: 格助詞の誤用 <s style="background:yellow;color:red">グローバルで事業を展開する</s> → グローバルに事業を展開する</span>)
-
-        **2: Punctuation (句読点) Usage Check**
-            -Detect missing, excessive, or incorrect use of punctuation marks (、。).
-
-            **Proofreading Requirements**:
-            -Ensure sentences correctly end with「。」where appropriate.
-            -Avoid redundant commas「、」in unnatural positions.
-            -Maintain standard business writing style.
-
-            -Example:
-            input: 収益見通しが期待できる企業を中心に投資を行なう方針です
-            output:
-            <span style="color:red;">収益見通しが期待できる企業を中心に投資を行なう方針です</span> (<span>修正理由: 文末句点の欠如 <s style="background:yellow;color:red"収益見通しが期待できる企業を中心に投資を行なう方針です</s> → 収益見通しが期待できる企業を中心に投資を行なう方針です。</span>)
-
-        **3: Unnatural Spaces (不自然な空白) Detection**
-            -Detect unnecessary half-width or full-width spaces within sentences.
-
-            **Proofreading Requirements**:
-            -Remove any redundant spaces between words or inside terms.
-            -Confirm that spacing follows standard Japanese document conventions.
-
-            -Example:
-            input: 送 配電設備
-            output:
-            <span style="color:red;">送配電設備</span> (<span>修正理由: 不要スペース削除 <s style="background:yellow;color:red">送 配電設備</s> → 送配電設備</span>)
-
-            -Example:
-            input: マイクロコントローラーや 関連の複合信号製品
-            output:
-            <span style="color:red;">マイクロコントローラーや関連の複合信号製品</span> (<span>修正理由: 不要スペース削除 <s style="background:yellow;color:red">マイクロコントローラーや 関連の複合信号製品</s> → マイクロコントローラーや関連の複合信号製品</span>)
-
-
-        **4: Omission or Misuse of Particles (助詞の省略・誤用) Detection**
-            - Detect omissions and misuses of grammatical particles (助詞), especially「の」「を」「に」, that lead to structurally incorrect or unnatural expressions.
-
-            **Proofreading Requirements**:
-
-            - Carefully examine whether all necessary particles—particularly「の」「を」「に」—are correctly used in every sentence.
-            - Do not tolerate the omission of any structurally required particle, even if the sentence appears understandable or natural overall.
-            - Focus on grammatical correctness, not perceived readability.
-            - In long texts, perform sentence-by-sentence proofreading to ensure no required particle is missing at any position.
-            - If a particle should be present according to standard Japanese grammar but is omitted, it must be explicitly identified and corrected.
-
-            -Example:
-            input: 欧州など市場調査開始して
-            output:
-            <span style="color:red;">欧州などの市場調査を開始して</span> (<span>修正理由: 連体修飾の助詞省略 <s style="background:yellow;color:red">欧州など市場調査開始して</s> → 欧州などの市場調査を開始して</span>)
-
-            -Example:
-            input: ECB（欧州中央銀行）など海外主要中銀による
-            output:
-            <span style="color:red;">ECB（欧州中央銀行）などの海外主要中銀による</span> (<span>修正理由: 所有格助詞「の」の省略 <s style="background:yellow;color:red">ECB（欧州中央銀行）など海外主要中銀による</s> → ECB（欧州中央銀行）などの海外主要中銀による</span>)
-
-            -Example:
-            input: 5000億円
-            output:
-            <span style="color:red;">5,000億円</span> (<span>修正理由: 金額カンマ区切り <s style="background:yellow;color:red">5000億円</s> → 5,000億円</span>)
-
-        **5: Monetary Unit & Number Format (金額表記・数値フォーマット) Check**
-
-            -Detect mistakes in number formatting, especially monetary values.
-            -Proofreading Requirements:
-            -Apply comma separator every three digits for numbers over 1,000.
-            -Ensure currency units (円、兆円、億円) are correctly used.
-            -Standardize half-width characters where needed.
-
-            -Example:
-            input: 対応には新たな技術開発や制度改革の必要性が指摘されています。
-            output:
-            <span style="color:red;">対応は新たな技術開発や制度改革の必要性が指摘されています。</span> (<span>修正理由: 格助詞「には」の誤用 <s style="background:yellow;color:red">対応には新たな技術開発や制度改革の必要性が指摘されています。</s> → 対応は新たな技術開発や制度改革の必要性が指摘されています。</span>)
-
-
-            **Special Instructions**:
-            - Always annotate all detected Hyōgai Kanji.
-            - Never replace or modify the character unless explicitly instructed.
-
-        **6: Detection of Misused Enumerative Particle「や」**
-            **Proofreading Targets**:
-            - Detect inappropriate use of the enumerative particle「や」when it connects elements with different grammatical structures.
-            - The particle「や」must only be used to list **nouns or noun phrases** that are grammatically equivalent.
-            - If the item following「や」is a **verb phrase**, **adverbial clause**, or a structurally different element, then「や」is incorrect.
-            - In such cases, replace「や」with a comma「、」to properly separate clauses or adjust the sentence structure.
-
-
-        **Special Rules:**
-        1. **Do not modify proper nouns (e.g., names of people, places, or organizations) unless they are clearly misspelled.**
-            -Exsample:
-            ベッセント氏: Since this is correct and not a misspelling, it will not be modified.
-        2. **Remove unnecessary or redundant text instead of replacing it with other characters.**
-            -Exsample:
-            ユーロ圏域内の景気委: Only the redundant character 委 will be removed, and no additional characters like の will be added. The corrected text will be: ユーロ圏域内の景気.
-        3. **Preserve spaces between words in the original text unless they are at the beginning or end of the text.**
-            -Example:
-            input: 月の 前半は米国の 債券利回りの上昇 につれて
-            Output: 月の 前半は米国の 債券利回りの上昇 につれて (spaces between words are preserved).
-        - **Task**: Header Date Format Validation & Correction  
-        - **Target Area**: Date notation in parentheses following "今後運用方針 (Future Policy Decision Basis)"  
-        ---
-        ### Validation Requirements  
-        1. **Full Format Compliance Check**:  
-        - Must follow "YYYY年MM月DD日現在" (Year-Month-Day as of)  
-        - **Year**: 4-digit number (e.g., 2024)  
-        - **Month**: 2-digit (01-12, e.g., April → 04)  
-        - **Day**: 2-digit (01-31, e.g., 5th → 05)  
-        - **Suffix**: Must end with "現在" (as of)  
-
-        2. **Common Error Pattern Detection**:  
-        ❌ "1月0日" → Missing month leading zero + invalid day 0  
-        ❌ "2024年4月1日" → Missing month leading zero (should be 04)  
-        ❌ "2024年12月" → Missing day value  
-        ❌ "2024-04-05現在" → Incorrect separator usage (hyphen/slash)  
-        ---
-        ### Correction Protocol  
-        1. **Leading Zero Enforcement**  
-        - Add leading zeros to single-digit months/days (4月 → 04月, 5日 → 05日)  
-
-        2. **Day 0 Handling**  
-        - Replace day 0 with YYYYMMDD Date Format  
-        - Example: 2024年4月0日 → 2024年04月00日
-
-        3. **Separator Standardization**  
-        - Convert hyphens/slashes to CJK characters:  
-            `2024/04/05` → `2024年04月05日`  
-
-
-        4. **Consistency with Report Data Section (レポートのデータ部との整合性確認):**
-        - Ensure the textual description in the report is completely consistent with the data section, without any logical or content-related discrepancies.
-
-        5. **Eliminate language fluency(単語間の不要なスペース削除):**
-        - Ensure that there are no extra spaces.
-            -Example:
-            input:景気浮揚が意 識されたことで
-            output:景気浮揚が意識されたことで
-        
-        6.  **Layout and Formatting Rules (レイアウトに関する統一):**
-            - **文頭の「○」印と一文字目の間隔を統一:**
-                - When a sentence begins with the "○" symbol, ensure the spacing between the symbol and the first character is consistent across the document.
-            - **文章の間隔の統一:**
-                - If a sentence begins with "○", ensure that the spacing within the frame remains consistent.
-            - **上位10銘柄 コメント欄について、枠内に適切に収まっているかチェック:**
-                - If the stock commentary contains a large amount of text, confirm whether it fits within the designated frame. 
-                - If the ranking changes in the following month, adjust the frame accordingly.
-                - **Check point**
-                    1. **文字数制限内に収まっているか？**
-                    - 1枠あたりの最大文字数を超えていないか？
-                    - 適切な行数で収まっているか？
-
-                    2. **次月の順位変動に伴う枠調整の必要性**
-                    - 順位が変更されると枠調整が必要なため、調整が必要な箇所を特定
-
-                    3. **枠内に収まらない場合の修正提案**
-                    - 必要に応じて、短縮表現や不要な情報の削除を提案
-                    - 重要な情報を損なわずに適切にリライト
-
-                    output Format:
-                    - **コメントの枠超過チェック**
-                    - (枠超過しているか: はい / いいえ)
-                    - (超過している場合、オーバーした文字数)
-
-                    - **順位変動による枠調整の必要性**
-                    - (調整が必要なコメントリスト)
-
-                    - **修正提案**
-                    - (枠内に収めるための修正後のコメント)
-
-            **Standardized Notation (表記の統一):**
-            - **基準価額の騰落率:**
-                - When there are three decimal places, round off using the round-half-up method to the second decimal place. If there are only two decimal places, keep the value unchanged.
-
-            - **％（パーセント）、カタカナ:**
-                - **半角カタカナ → 全角カタカナ**（例:「ｶﾀｶﾅ」→「カタカナ」）
-                - **半角記号 → 全角記号**（例:「%」→「％」、「@」→「＠」）
-                    Example:
-                        input: % ｶﾀｶﾅ 
-                        output: ％ カタカナ
-
-            - **数字、アルファベット、「＋」・「－」:**
-                - **全角数字・アルファベット → 半角数字・アルファベット**（例:「１２３」→「123」、「ＡＢＣ」→「ABC」）
-                - **全角「＋」「－」 → 半角「+」「-」**（例:「＋－」→「+-」
-                    Example:
-                        input: １２３ ＡＢＣ ｱｲｳ ＋－
-                        output: 123 ABC アイウ +-
-
-            - **スペースは変更なし**  
-
-            - **「※」の使用:**
-                - 「※」は可能であれば **上付き文字（superscript）※** に変換してください。
-                - 出力形式の例:
-                - 「重要事項※」 → 「重要事項<sup>※</sup>」
-
-            - **（カッコ書き）:**
-                - Parenthetical notes should only be included in their first occurrence in a comment.
-                以下の日本語テキストにおいて、カッコ書き（bracket "（ ）"）が適切に使用されているかをチェックしてください。
-
-                **Check point**
-                    1. **カッコ書きは、コメントの初出のみに記載されているか？**
-                    - 同じカッコ書きが2回以上登場していないか？
-                    - 初出ページ以降のコメントにカッコ書きが重複して記載されていないか？
-
-                    2. **ディスクロのページ番号順に従ってルールを適用**
-                    - シートの順番ではなく、実際のページ番号を基準にする。
-
-                    3. **例外処理**
-                    - 「一部例外ファンドあり」とあるため、例外的にカッコ書きが複数回登場するケースを考慮する。
-                    - 例外として認められるケースを判断し、適切に指摘。
-
-                    output Format:
-                    - **カッコ書きの初出リスト**（どのページに最初に登場したか）
-                    - **重複チェック結果**（どのページで二重記載されているか）
-                    - **修正提案**（どのページのカッコ書きを削除すべきか）
-                    - **例外ファンドが適用される場合、補足情報**
-
-            - **会計期間の表記:**
-                - The use of "～" is prohibited; always use "-".
-                - Example: 6～8月期（×） → 6-8月期（○）
-            - **年度表記:**
-                - Use four-digit notation for years.
-                - Make modifications directly in this article and explain the reasons for the modifications.
-                - Example: 22年（×） → 2022年（○）
-            - **レンジの表記:**
-                - Always append "%" when indicating a range.
-                - Make modifications directly in this article and explain the reasons for the modifications.
-                - Example: -1～0.5%（×） → -1%～0.5%（○）
-            - **投資環境の記述:**
-                **「先月の投資環境」**の部分で「先月末」の記述が含まれる場合、「前月末」に変更してください。
-                Example:
-                修正前: 先月末の市場動向を分析すると…
-                修正後: 前月末の市場動向を分析すると…
-
-            - **通貨表記の統一:**
-                - Standardize currency notation across the document.
-                - 日本円は「JPY」または「¥」で統一 円.
-                - Exsample: 
-                input: ¥100 or JPY 100
-                output: 100 円
-
-            **Preferred and Recommended Terminology (置き換えが必要な用語/表現):**
-            - **第1四半期:**
-                - Ensure the period is clearly stated.
-                - Example: 18年第4四半期（×） → 2018年10-12月期（○）
-            - **約○％程度:**
-                - Do not use "約" (approximately) and "程度" (extent) together. Choose either one.
-                - Example: 約○％程度（×） → 約○％ or ○％程度（○）
-            - **大手企業表記の明確化**  
-            - **「○○大手」** が含まれる場合、文中の **会社名を抽出** し、  
-                **「大手○○会社/企業」** の形式に修正する。  
-            - **入力例:**  
-                - 「大手メーカー/会社/企業」  
-                - **出力:** 「大手不動産会社、大手半導体メーカー」  
-            - **The actual company name must be found and converted in the article
-
-
-        **Special Rules:**
-        1. **Do not modify proper nouns (e.g., names of people, places, or organizations) unless they are clearly misspelled.**
-            -Exsample:
-            ベッセント氏: Since this is correct and not a misspelling, it will not be modified.
-        2. **Remove unnecessary or redundant text instead of replacing it with other characters.**
-            -Exsample:
-            ユーロ圏域内の景気委: Only the redundant character 委 will be removed, and no additional characters like の will be added. The corrected text will be: ユーロ圏域内の景気.
-        3. **Preserve spaces between words in the original text unless they are at the beginning or end of the text.**
-            -Example:
-            input: 月の 前半は米国の 債券利回りの上昇 につれて
-            Output: 月の 前半は米国の 債券利回りの上昇 につれて (spaces between words are preserved).
-        ---
-
-        ### **Correction Rules:**
-        1. **Only output the corrected_map dictionary. No explanations or extra text.**
-        2. **Only incorrect words and their corrected versions should be included.**
-        3. **Do not include full sentence corrections.**
-        4. **Ensure the corrected_map output is in valid Python dictionary format.**
-        5. **Return only the following structure:**
-        
-        **Output Format:**
-        {{
-            "incorrect1": "corrected1",
-            "incorrect2": "corrected2"
-        }}
-
-        """
-
-    
-    # ChatCompletion Call
-    response = openai.ChatCompletion.create(
-        deployment_id=deployment_id,  # Deploy Name
-        messages=[
-            {"role": "system", "content": "You are a professional Japanese text proofreading assistant."},
-            {"role": "user", "content": prompt_result}
-        ],
-        max_tokens=MAX_TOKENS,
-        temperature=TEMPERATURE,
-        seed=SEED  #seed
-    )
-
-    try:
-        answer = response['choices'][0]['message']['content']
-        corrected_map = parse_gpt_response(answer)
-        
-        full_corrected = prompt
-        for k, v in corrected_map.items():
-            full_corrected = full_corrected.replace(k, v)
-
-        dynamic_corrections = detect_corrections(prompt, full_corrected)
-        corrected_map.update(dynamic_corrections)
-
-        return {k: v for k, v in corrected_map.items() if k and v and k != v}
-
-    except Exception as e:
-        print(f"req error: {e}")
-        return {}
-
 def correct_text_box_in_excel(input_bytes,corrected_map):
     # 1)  in-memory zip
     in_memory_zip = zipfile.ZipFile(io.BytesIO(input_bytes), 'r')
@@ -4815,14 +3355,6 @@ def correct_text_box_in_excel(input_bytes,corrected_map):
                 # 4) find <a:t> tag 
                 for t_element in tree.findall(".//a:t", ns):
                     original_text = t_element.text
-                #----------------------------------------------------------------
-                    # if original_text:  # None 
-                    #     original_text_gpt = gpt_correct_text(original_text)
-
-                    #     if original_text_gpt and original_text_gpt.strip() in corrected_map:
-                    #         t_element.text = corrected_map[original_text_gpt.strip()]
-                #----------------------------------------------------------------
-                    # resultMap = gpt_correct_text(original_text)
 
                     if original_text in corrected_map:
                         t_element.text = corrected_map[original_text]
@@ -5300,7 +3832,6 @@ def common_ruru():
     #     # exception return JSON 
     #     return jsonify({"success": False, "error": str(e)}), 500
 
-
 # --- ruru test api
 
 @app.route('/api/ruru_search_db', methods=['POST'])
@@ -5681,27 +4212,37 @@ def file_search():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 303
 
-
 @app.route('/api/ruru_ask_gpt_enhance', methods=['POST'])
 def integrate_enhance():
     try:
+        # ========== 基本准备 ==========
         token = token_cache.get_token()
         openai.api_key = token
         print("✅ Token Update Done")
 
         data = request.json
+
+        # ========== 输入参数读取 ==========
         _content = data.get("input", "")
         condition = data.get("Target_Condition", "")
         category = data.get("Org_Type", "")
         consult = data.get("Target_Consult", "")
         base_month = data.get("Base_month", "")
-        pageNumber = data.get('pageNumber',0)
+        pageNumber = data.get('pageNumber', 0)
         file_name = data.get("file_name", "")
         target_text = data.get("Target_Text", "")
-
         org_text = data.get("Org_Text", "")
         __answer = ""
 
+        # =====================================================
+        # 统一清理所有输入文本的换行符，避免GPT或正则匹配被断行影响
+        # =====================================================
+        import re
+        _content = re.sub(r"[\r\n]+", " ", _content).strip()
+        target_text = re.sub(r"[\r\n]+", " ", target_text).strip()
+        org_text = re.sub(r"[\r\n]+", " ", org_text).strip()
+
+        # ========== 特定规则处理 ==========
         if org_text == "リスク抑制戦略の状況":
             if "リスク抑制戦略の状況" in _content:
                 return jsonify({
@@ -5711,9 +4252,9 @@ def integrate_enhance():
                         "original_text": "リスク抑制戦略の状況",
                         "check_point": "リスク抑制戦略の状況",
                         "comment": f"リスク抑制戦略の状況 → ",
-                        "reason_type":"整合性", 
+                        "reason_type": "整合性",
                         "locations": [{"x0": 0, "x1": 0, "y0": 0, "y1": 0}],
-                        "intgr": True, 
+                        "intgr": True,
                     }]
                 })
             else:
@@ -5724,9 +4265,9 @@ def integrate_enhance():
                         "original_text": "リスク抑制戦略の状況",
                         "check_point": "リスク抑制戦略の状況",
                         "comment": f"リスク抑制戦略の状況 → ",
-                        "reason_type": "リスク抑制戦略の状況が存在していません。",  
+                        "reason_type": "リスク抑制戦略の状況が存在していません。",
                         "locations": [{"x0": 0, "x1": 0, "y0": 0, "y1": 0}],
-                        "intgr": True,  
+                        "intgr": True,
                     }]
                 })
 
@@ -5734,12 +4275,7 @@ def integrate_enhance():
             content = _content
         elif org_text == "【銘柄名】L’Occitane en Provence（欧州）":
             content_re = re.search("【銘柄名】.{,100}", _content)
-            if content_re:
-                content = content_re.group()
-            else:
-                content = ""
-
-
+            content = content_re.group() if content_re else ""
         else:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -5752,64 +4288,68 @@ def integrate_enhance():
                     "corrections": []
                 })
 
+        # ========== PDF 文件处理 ==========
         pdf_base64 = data.get("pdf_bytes", "")
-
         file_name_decoding = data.get("file_name", "")
-
-        # URL Decoding
         file_name = urllib.parse.unquote(file_name_decoding)
 
+        # ========== condition 表数据解析 ==========
         if condition:
             result_temp = []
             table_list = condition.split("\n")
-            for data in table_list:
-                if data:
+            for data_item in table_list:
+                if data_item:
                     if category in ["比率", "配分"]:
                         re_num = re.search(r"([-\d. ]+)(%|％)", content)
                         if re_num:
                             num = re_num.groups()[0]
                             float_num = len(str(num).split(".")[1]) if "." in num else 0
-                            old_data = pd.read_json(StringIO(data))
+                            old_data = pd.read_json(StringIO(data_item))
                             result_temp.append(old_data.applymap(
                                 lambda x: (str(round(x * 100, float_num)) + "%" if float_num != 0 else str(
                                     int(round(x * 100, float_num))) + "%")
                                 if not pd.isna(x) and isinstance(x, float) else x).to_json(force_ascii=False))
                         else:
-                            result_temp.append(pd.read_json(StringIO(data)).to_json(force_ascii=False))
+                            result_temp.append(pd.read_json(StringIO(data_item)).to_json(force_ascii=False))
                     else:
-                        result_temp.append(pd.read_json(StringIO(data)).to_json(force_ascii=False))
-            if len(result_temp) > 1:
-                result_data = "\n".join(result_temp)
-            else:
-                result_data = result_temp[0]
+                        result_temp.append(pd.read_json(StringIO(data_item)).to_json(force_ascii=False))
+            result_data = "\n".join(result_temp) if len(result_temp) > 1 else result_temp[0]
         else:
             result_data = ""
 
+        # ========== 构造 GPT Prompt ==========
         input_list = [
-            "以下の内容に基づいて、原文の記述が正しいかどうかを判断してください", "要件:",
+            "以下の内容に基づいて、原文の記述が正しいかどうかを判断してください",
+            "要件:",
             "- 『参考データ』に該当する情報がない場合、その記述については判断を行わず、「判定対象外」と明記してください。",
             "- 最後に原文の記述が正しいかどうかを明確に判断し、文末に『OK』または『NG』を記載してください",
             f"- **現在の参考データは20{base_month[1:3]}年{base_month[3:]}月の参考データです**",
             f"- 文中に『先月末』『前月末』『○月末』などの表現があっても、現在の参考データ（月）を基準として判断してください",
             f"原文の判断:'{content}'\n参考データ:\n'{result_data}'",
         ]
-
         if consult:
             input_list.insert(3, consult)
+
         input_data = "\n".join(input_list)
+        # 在发给 GPT 前再次清理多余换行
+        input_data = re.sub(r"\s*\n\s*", " ", input_data)
+
         question = [
             {"role": "system", "content": "あなたは日本語文書の校正アシスタントです"},
             {"role": "user", "content": input_data}
         ]
 
+        # ========== GPT调用1 ==========
         response = openai.ChatCompletion.create(
-            deployment_id=deployment_id,  # Deploy Name
+            deployment_id=deployment_id,
             messages=question,
             max_tokens=MAX_TOKENS,
             temperature=TEMPERATURE,
-            seed=SEED  # seed
+            seed=SEED
         )
         answer = response['choices'][0]['message']['content'].strip()
+
+        # ========== GPT调用2：提取错误 ==========
         if answer:
             dt = [
                 "以下の分析結果に基づき、原文中の誤りを抽出してください",
@@ -5819,49 +4359,56 @@ def integrate_enhance():
                 f"原文:'{content}'\n分析結果:'{answer}'"
             ]
             summarize = "\n".join(dt)
+            summarize = re.sub(r"[\r\n]+", " ", summarize)  # 防止GPT段落被断行
+
             _question = [
                 {"role": "system", "content": "あなたは日本語文書の校正アシスタントです"},
                 {"role": "user", "content": summarize}
             ]
             _response = openai.ChatCompletion.create(
-                deployment_id=deployment_id,  # Deploy Name
+                deployment_id=deployment_id,
                 messages=_question,
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE,
-                seed=SEED  # seed
+                seed=SEED
             )
+
             _answer = _response['choices'][0]['message']['content'].strip().replace("`", "").replace("json", "", 1)
             parsed_data = ast.literal_eval(_answer)
             corrections = []
+
+            # ========== 修正点生成 ==========
             if parsed_data:
                 for once in parsed_data:
                     error_data = once.get("original", "")
                     reason = once.get("reason", "")
+                    # 再次清理输入，防止换行导致匹配不到
+                    _content = _content.replace("\r", " ").replace("\n", " ")
+
                     corrections.append({
                         "page": pageNumber,
-                        "original_text": get_src(error_data, _content).replace("。○","").replace("。◯","").strip().rsplit('\n', 1)[0],
+                        "original_text": get_src(error_data, _content).replace("。○", "").replace("。◯", "").strip().rsplit('\n', 1)[0],
                         "check_point": content,
-                        "comment": f"{error_data} → {reason}", #
-                        "reason_type":reason, 
+                        "comment": f"{error_data} → {reason}",
+                        "reason_type": reason,
                         "locations": [],
-                        "intgr": True, 
+                        "intgr": True,
                     })
             else:
                 corrections.append({
                     "page": pageNumber,
-                    "original_text": get_src(content, _content).replace("。○","").replace("。◯","").strip().rsplit('\n', 1)[0],
+                    "original_text": get_src(content, _content).replace("。○", "").replace("。◯", "").strip().rsplit('\n', 1)[0],
                     "check_point": content,
                     "comment": f"{content} → ",
-                    "reason_type": "整合性",  
+                    "reason_type": "整合性",
                     "locations": [],
                     "intgr": True,
                 })
 
+            # ========== PDF高亮位置标记 ==========
             try:
                 pdf_bytes = base64.b64decode(pdf_base64)
                 find_locations_in_pdf(pdf_bytes, corrections)
-                
-
             except ValueError as e:
                 return jsonify({"success": False, "error": str(e)}), 400
             except Exception as e:
@@ -5874,6 +4421,8 @@ def integrate_enhance():
                 "input_data": input_data,
                 "corrections": corrections
             })
+
+        # ========== 如果GPT未返回 ==========
         else:
             return jsonify({
                 "success": True,
@@ -5882,14 +4431,15 @@ def integrate_enhance():
                     "original_text": content,
                     "check_point": content,
                     "comment": f"{content} → ",
-                    "reason_type":"整合性", 
+                    "reason_type": "整合性",
                     "locations": [{"x0": 0, "x1": 0, "y0": 0, "y1": 0}],
-                    "intgr": True, 
-                }]  
+                    "intgr": True,
+                }]
             })
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 200
+
 
 def extract_or_return(sentence):
     pattern = (
@@ -6187,7 +4737,6 @@ def ruru_ask_gpt():
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
-
     
 # 611 opt - debug new prompt
 def extract_text_from_base64_pdf(pdf_base64: bytes) -> list:
@@ -6294,34 +4843,88 @@ def get_src(no_space, src_content):
     else:
         return no_space
 
+# add new logic to deal with okurigana_na
+def collect_okurigana_na_issues(input_text: str, pageNumber: int):
+    """
+    検出：『行◯』（“な”が無い）を全て拾い、正しい表記（行な◯）へ修正提案を返す。
+    例）行う→行なう、行って→行なって、行われる→行なわれる、行わない→行なわない 等
+    """
+    normalized = re.sub(r"\s+", "", input_text)
+    pattern = re.compile(
+        r"行(?!な)(う|い|って|った|われ|われる|われた|わない|わせる|わせられ|わせられた|わせられない|わず|わずに)"
+    )
 
+    results = []
+    for m in pattern.finditer(normalized):
+        base_tail = m.group(1)
+        extra = ""
+        extra_match = re.match(r"[ぁ-ゟー]*", normalized[m.end():])
+        if extra_match:
+            extra = extra_match.group(0)
+
+        tail = base_tail + extra
+        wrong = "行" + tail
+        correct = "行な" + tail
+
+        results.append({
+            "page": pageNumber,
+            "original_text": wrong,
+            "comment": f"{wrong} → {correct}",
+            "reason_type": "送り仮名「な」の欠落",
+            "check_point": wrong,
+            "locations": [],
+            "intgr": False,
+        })
+
+    return results
 
 # async call ,need FE promises
-def opt_common(input, prompt_result, pdf_base64, pageNumber, re_list, rule_list, rule1_list, rule3_list,symbol_list):  
-    # ChatCompletion Call
+def opt_common(input, prompt_result, pdf_base64, pageNumber,
+               re_list, rule_list, rule1_list, rule3_list, symbol_list,
+               pre_corrections=None):
+    combine_corrections = []
+    src_corrections = []
+
+    # 来自 opt_typo 的前置修正（如果有）
+    if pre_corrections:
+        combine_corrections.extend(pre_corrections)
+    pre_len = len(combine_corrections)
+
+    # === GPT 调用 ===
     response = openai.ChatCompletion.create(
-        deployment_id=deployment_id,  # Deploy Name
+        deployment_id=deployment_id,
         messages=[
             {"role": "system", "content": "You are a Japanese text extraction tool capable of accurately extracting the required text."},
             {"role": "user", "content": prompt_result}
         ],
         max_tokens=MAX_TOKENS,
         temperature=TEMPERATURE,
-        seed=SEED  # seed
+        seed=SEED
     )
     answer = response['choices'][0]['message']['content'].strip().replace("`", "").replace("json", "", 1).replace("\n", "")
     parsed_data = ast.literal_eval(answer)
-    combine_corrections = []
-    src_corrections = []
+
+    # --- 保险：过滤 GPT 对「行/行な」系列的改动 ---
+    def _is_okurigana_family(s: str) -> bool:
+        return bool(re.search(r"行(?:な)?(?:う|い|って|った|われ|われる|われた|わない|わせる|わせられ|わず|わずに)", s or ""))
+
     if isinstance(parsed_data, list):
-        for re_index, data in enumerate(parsed_data):
+        filtered = []
+        for item in parsed_data:
+            ori = str(item.get("original", ""))
+            cor = str(item.get("correct", ""))
+            if _is_okurigana_family(ori) or _is_okurigana_family(cor):
+                # 丢弃涉及「行/行な」系列的任何 GPT 提案
+                continue
+            filtered.append(item)
+        parsed_data = filtered
+
+        for data in parsed_data:
             _re_rule = ".{,2}"
             data["original"] = get_src(data["original"], input)
-            _original_re = regcheck.search(f"{_re_rule}{regcheck.escape(data["original"])}{_re_rule}", input)
-            if _original_re:
-                _original_text = _original_re.group()
-            else:
-                _original_text = data["original"]
+            _original_re = regcheck.search(f"{_re_rule}{regcheck.escape(data['original'])}{_re_rule}", input)
+            _original_text = _original_re.group() if _original_re else data["original"]
+
             combine_corrections.append({
                 "page": pageNumber,
                 "original_text": _original_text,
@@ -6329,20 +4932,21 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber, re_list, rule_list,
                 "reason_type": data["reason"],
                 "check_point": _original_text,
                 "locations": [],
-                "intgr": False,  
+                "intgr": False,
             })
             src_corrections.append(f'{data["original"]} → {data["correct"]}')
 
+    # === 规则追加 ===
     if rule_list:
         for rule_result in rule_list:
             combine_corrections.append({
                 "page": pageNumber,
-                "original_text": str(rule_result),  
+                "original_text": str(rule_result),
                 "comment": f"{str(rule_result)} → 当月の投資配分",
                 "reason_type": "誤字脱字",
                 "check_point": str(rule_result),
                 "locations": [],
-                "intgr": False,  
+                "intgr": False,
             })
 
     if re_list:
@@ -6350,82 +4954,69 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber, re_list, rule_list,
             correct = get_num(re_result)
             combine_corrections.append({
                 "page": pageNumber,
-                "original_text": str(re_result),  
+                "original_text": str(re_result),
                 "comment": correct,
                 "reason_type": "数値千位逗号分隔修正",
                 "check_point": str(re_result),
                 "locations": [],
-                "intgr": False,  
+                "intgr": False,
             })
 
     if rule1_list:
         for rule1_result in rule1_list:
             combine_corrections.append({
                 "page": pageNumber,
-                "original_text": rule1_result,  
+                "original_text": rule1_result,
                 "comment": f"{rule1_result} →  ",
                 "reason_type": "削除",
                 "check_point": rule1_result,
                 "locations": [],
-                "intgr": False,  
+                "intgr": False,
             })
 
     if rule3_list:
         for rule3_result in rule3_list:
             combine_corrections.append({
                 "page": pageNumber,
-                "original_text": rule3_result,  
+                "original_text": rule3_result,
                 "comment": f"{rule3_result} → {rule3_result[1:]}",
                 "reason_type": "削除",
                 "check_point": rule3_result,
                 "locations": [],
-                "intgr": False,  
+                "intgr": False,
             })
 
-    # if word_list:
-    #     for word_result in word_list:
-    #         combine_corrections.append({
-    #             "page": pageNumber,
-    #             "original_text": word_result,  
-    #             "comment": f"{word_result} → 値上がりし",
-    #             "reason_type": "動詞固定用法",
-    #             "check_point": word_result,
-    #             "locations": [],
-    #             "intgr": False,  
-    #         })
-    
-    # され、下落し
     if symbol_list:
         for symbol_result in symbol_list:
             combine_corrections.append({
                 "page": pageNumber,
-                "original_text": symbol_result,  
+                "original_text": symbol_result,
                 "comment": f"{symbol_result} → され下落し",
                 "reason_type": "読点を削除する",
                 "check_point": symbol_result,
                 "locations": [],
-                "intgr": False,  
+                "intgr": False,
             })
 
+    # === PDF 坐标定位 ===
     if pdf_base64:
         try:
             pdf_bytes = base64.b64decode(pdf_base64)
-            
             find_locations_in_pdf(pdf_bytes, combine_corrections)
+            # 注意偏移：只覆写 GPT 段的 comment
             for idx, _comment in enumerate(src_corrections):
-                combine_corrections[idx]["comment"] = _comment
-
+                combine_corrections[pre_len + idx]["comment"] = _comment
         except ValueError as e:
             return jsonify({"success": False, "error": str(e)}), 400
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 500
 
-    # return JSON
     return jsonify({
         "success": True,
-        "corrections": combine_corrections,  
+        "corrections": combine_corrections,
         "parsed_data": parsed_data
     })
+
 
 async def opt_common_wording(file_name,fund_type,input,prompt_result,excel_base64,pdf_base64,resutlmap,upload_type,comment_type,icon,pageNumber):
     # ChatCompletion Call
@@ -6486,12 +5077,6 @@ async def opt_common_wording(file_name,fund_type,input,prompt_result,excel_base6
         "debug_re_answer":re_answer, #610 debug
     })
 
-@app.route('/api/prompt_test', methods=['GET'])
-def get_prompt_data():
-    prompt_result1 = get_prompt("\"" + "111111111111111111111111111" + "\"")
-    prompt_result2 = loop_in_ruru("\"" + "1111111111111111111111111111" + "\"")
-    return jsonify(dict(xu=list(prompt_result1), tang=list(prompt_result2)))
-
 
 @app.route('/api/opt_typo', methods=['POST'])
 def opt_typo():
@@ -6502,28 +5087,40 @@ def opt_typo():
         
         data = request.json
         input = data.get("input", "")
-
         pdf_base64 = data.get("pdf_bytes", "")
         excel_base64 = data.get("excel_bytes", "")
         resutlmap = data.get("original_text", "")
-
-        fund_type = data.get("fund_type", "public")  #  'public'
+        fund_type = data.get("fund_type", "public")
         file_name_decoding = data.get("file_name", "")
         upload_type = data.get("upload_type", "")
         comment_type = data.get("comment_type", "")
         icon = data.get("icon", "")
-        pageNumber = data.get('pageNumber',0)
+        pageNumber = data.get('pageNumber', 0)
 
-        # URL Decoding
         file_name = urllib.parse.unquote(file_name_decoding)
 
         if not input:
             return jsonify({"success": False, "error": "No input provided"}), 400
-        
         if len(input) < 5:
-            return jsonify({"success": True, "corrections": [],})
+            return jsonify({"success": True, "corrections": []})
 
-        prompt_result = get_prompt("\"" + input.replace('\n', '') + "\"")
+        # 原文保留给 opt_common / 位置匹配
+        original_input = input
+
+        # ① 先在 opt_typo 层面运行：送り仮名「な」欠落の検出（原文）
+        pre_corrections = collect_okurigana_na_issues(original_input, pageNumber)
+
+        # ② 构造“掩码版输入”，只给 GPT（避免 Okurigana 被 GPT 触碰）
+        skip_patterns = [
+            r"行う", r"行い", r"行って", r"行った", r"行われ", r"行われる", r"行わない",
+            r"行なう", r"行ない", r"行なって", r"行なった", r"行なわれ", r"行なわれる", r"行なわない"
+        ]
+        masked_input = original_input
+        for pat in skip_patterns:
+            masked_input = re.sub(pat, f"<OKURIGANA_SKIP_{pat}>", masked_input)
+
+        prompt_result = get_prompt("\"" + masked_input.replace('\n', '') + "\"")
+
         async def run_tasks():
             tasks = [handle_result(once) for once in prompt_result]
             return await asyncio.gather(*tasks)
@@ -6531,14 +5128,14 @@ def opt_typo():
         results = asyncio.run(run_tasks())
         sec_input = "\n".join(results)
 
+        # 用“掩码版输入”生成 sec_prompt，确保 GPT 永远看不到原文的行/行な系列
         dt = [
             "以下の分析結果に基づき、原文中の誤りを抽出してください。",
             "- 出力結果は毎回同じにしてください（**同じ入力に対して結果が変動しないように**してください）。",
             "- originalには必ず全文や長い文ではなく、**reason_typeで指摘されている最小限の誤りポイント（単語や助詞など）**のみを記載してください。",
             "- 1単語またはごく短いフレーズ単位でoriginalを抽出してください。",
-            "- originalはreason_typeの説明に該当する部分のみを抽出してください（例：『など』の後に助詞『の』が必要→originalは必ず『など』）。",
+            "- originalはreason_typeの説明に該当する部分のみを抽出してください（例：『など』の後には助詞『の』が必要）。",
             "- 同じ入力には常に**同じJSON形式の出力**を返してください（推論の揺れを避けてください）。",
-            
             "出力は以下のJSON形式でお願いします:",
             "- [{'original': '[原文中の誤っている最小単位の部分]', 'correct': '[正しいテキスト]', 'reason': '[理由:]'}]",
             "- 分析結果に修正部分がある場合は、必ず空のリストを返さないでください。",
@@ -6553,32 +5150,30 @@ def opt_typo():
             "    \"reason\": \"年表記は4桁（西暦）に統一\"",
             "  }",
             "]",
-            "reason_type: '例示『など』の後には助詞『の』が必要。『など海外主要中銀』は文法的に不自然なため。'",
-            "原文: \"など海外主要中銀による\"",
-            "出力例:",
-            "[",
-            "  {",
-            "    \"original\": \"など\",",
-            "    \"correct\": \"などの\",",
-            "    \"reason\": \"例示『など』の後には助詞『の』が必要\"",
-            "  }",
-            "]",
-            f"原文:'{input}'\n分析結果:'{sec_input}'"
-
+            f"原文:'{masked_input}'\n分析結果:'{sec_input}'"
         ]
         sec_prompt = "\n".join(dt)
-        re_list = regcheck.findall(r"(\d{4,})[人種万円兆億]", input)
-        # word_list = regcheck.findall(r".{,2}値上がり(?!し).{,2}", input)
-        rule_list = regcheck.findall(r"当月投資配分", input)
-        rule1_list = regcheck.findall(r"【(先月の投資環境|先月の運用経過|今後の運用方針)】", input)
-        rule3_list = regcheck.findall(r"-[\d.％]{4,6}下落", input)
-        symbol_list = regcheck.findall(r"され、下落し", input)
 
-        _content = opt_common(input, sec_prompt, pdf_base64,pageNumber,re_list,rule_list,rule1_list,rule3_list,symbol_list)
+        # 本地规则
+        re_list = regcheck.findall(r"(\d{4,})[人種万円兆億]", original_input)
+        rule_list = regcheck.findall(r"当月投資配分", original_input)
+        rule1_list = regcheck.findall(r"【(先月の投資環境|先月の運用経過|今後の運用方針)】", original_input)
+        rule3_list = regcheck.findall(r"-[\d.％]{4,6}下落", original_input)
+        symbol_list = regcheck.findall(r"され、下落し", original_input)
+
+        # ③ 把 pre_corrections 交给 opt_common；opt_common 用原文 original_input 做定位
+        _content = opt_common(
+            original_input, sec_prompt, pdf_base64, pageNumber,
+            re_list, rule_list, rule1_list, rule3_list, symbol_list,
+            pre_corrections=pre_corrections
+        )
         return _content
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+
 
 async def handle_result(prompt_result):
     response = await openai.ChatCompletion.acreate(
@@ -6602,25 +5197,25 @@ def get_prompt(corrected):
     example_11 = "'original': '我々は新しいプロジェクトに取り組みし、成果を上げました。'"
     example_110 = "'original': 'セクター配分において特化型（物流施設）をアンダーウェイト（参考指数と比べ低めの投資比率）したことなどがプラスに寄与しました。', 'correct': 'セクター配分において特化型（物流施設）をアンダーウェイト（参考指数と比べ低めの投資比率）としたことなどがプラスに寄与しました。', 'reason': '動詞活用の誤り（「遊ばれる」→「遊ぼれる」）'"
     example_111 = "'original': '電子部品や通信機器などの製造・販売を行なうグローバルで事業を展開する電子モジュール・部品メーカー。', 'correct': '電子部品や通信機器などの製造・販売を行なうグローバルに事業を展開する電子モジュール・部品メーカー。', 'reason': 'グローバルは「に」を使用する'"
-    # example_2 = "'original': '今後はトランプ次期米大統領が掲げる減税や規制緩和の政策が米景気を押し上げることが、市場の下支えになると考えています。引き続き、FRBによる金融政策や新政権の政策により影響を受けるセクターなどを注視しながら、銘柄を選定して運用を行ないます', 'correct': '今後はトランプ次期米大統領が掲げる減税や規制緩和の政策が米景気を押し上げることが、市場の下支えになると考えています。引き続き、FRBによる金融政策や新政権の政策により影響を受けるセクターなどを注視しながら、銘柄を選定して運用を行ないます。', 'reason': '文法誤用'"
-    # example_4 = "'original': '半導体メーカー。マイクロコントローラーや 関連の複合信号製品', 'correct': '半導体メーカー。マイクロコントローラーや関連の複合信号製品', 'reason': '不要スペース削除'"
     example_6 = "'original': '残りについてT-bill（米国財務省短期証券）及び現金等となりました。', 'correct': '残りについてはT-bill（米国財務省短期証券）及び現金等となりました。', 'reason': '助詞「は」の脱落修正'"
     example_60 = "'original': '当月投資配分についてはノムラ・プライベート・クレジット・アクセス・カンパニーに46.4%、', '当月の投資配分についてはノムラ・プライベート・クレジット・アクセス・カンパニーに46.4%、', 'reason': '助詞「の」の脱落修正'"
     example_61 = "'original': '変えること目指している。', 'correct': '変えることを目指している。', 'reason': '助詞「を」の脱落修正'"
-
     example_70 = "'original': '○月間の基準価額（分配金再投資）の騰落率は、毎月分配型が0.37％、年2回決算型は0.36％の上昇となり、参考指数の騰落率（0.58％の上昇）を下回りました。', 'correct': '○月間の基準価額（分配金再投資）の騰落率は、毎月分配型が0.37％の上昇、年2回決算型は0.36％の上昇となり、参考指数の騰落率（0.58％の上昇）を下回りました。', 'reason': 'Aが◯%、Bは△%の上昇の場合、「の上昇」がBだけにかかっていて、Aにもつけた方がわかりやすいため。'"
+
     prompt_list = [
         f"""
         **Typographical Errors（脱字・誤字）Detection**
         - Detect only character-level errors that clearly break grammar or meaning.
+        - ❗ **Do not check or modify expressions related to 「行う」「行なう」and their conjugations (行い・行って・行なって・行われ・行なわれる・行わない etc.) — skip all okurigana variations for this verb family.**
         **Proofreading Requirements**：
         - Only correct missing or misused characters that clearly break grammar or meaning.
         - Correct obvious verb/kanji errors, even if they seem superficially natural.
         - Do not flag stylistic or acceptable variations unless clearly wrong.
         - Ensure each kanji accurately reflects the intended meaning.
         - Detect cases where non-verb terms are incorrectly used as if they were verbs.
-        - Do **not** treat orthographic variants involving okurigana omission or abbreviation（e.g., 書き換え vs 書換え, 読み取る vs 読取る, 取り込む vs 取込）as typographical errors
-        -Detect expressions where omitted repeated phrases (e.g., "の上昇", "の低下") may cause ambiguity between multiple items, and suggest repeating the term explicitly for each item to ensure clarity.
+        - Do **not** treat orthographic variants involving okurigana omission or abbreviation（e.g., 書き換え vs 書換え, 読み取る vs 読取る, 取り込む vs 取込）as typographical errors.
+        - ❗ **Do not check or modify expressions related to 「行う」「行なう」 and their conjugations (行い・行って・行なって・行われ・行なわれる・行わない etc.) — skip all okurigana variations for this verb family.**
+        - Detect expressions where omitted repeated phrases (e.g., "の上昇", "の低下") may cause ambiguity between multiple items, and suggest repeating the term explicitly for each item to ensure clarity.
         - Do not modify expressions that are grammatically valid and commonly accepted in Japanese, even if alternative phrasing may seem more natural. For example, do not rewrite "中国、米国など" as "中国や米国など" unless required. However, grammatically incorrect forms like "中国、米国など国" must be corrected to "中国、米国などの国".
         
         **missing Example*：
@@ -6634,51 +5229,7 @@ def get_prompt(corrected):
         "取り組みし"は自然な連用形表現のため、修正不要'
         {example_70}
         """,
-    #   f"""
-    #    **Punctuation (句読点) Usage Check**
-    #     -Check the sentence-ending punctuation and comma usage only within complete sentences.
-    #     **Proofreading Requirements:**
-    #     -Only detect missing「。」at the end of grammatically complete sentences.
-    #     -If the sentence already ends with「。」, do not suggest any correction.
-    #     -Do not flag missing or extra「。」in sentence fragments, headings, bullet points, or intentionally incomplete expressions.
-    #     -Check for excessive or missing「、」only within grammatically complete sentences.
-    #     -Do not flag cases where comma omission is stylistically natural and grammatically acceptable in Japanese (e.g.,「好感され月間では下落し」).
-
-    #     **Example**：
-    #     {example_2}
-    #     """,
-    #     f"""
-    #    **Punctuation (「。」and 「、」) Usage Check**
-    #     【Scope】
-    #     - Sentences containing both a subject and predicate, ending in a terminal (sentence-final) form
-    #     - Only check punctuation within a complete sentence
-
-    #     【Exclusions】
-    #     - Sentence fragments, headings, bullet points, or intentionally incomplete expressions
-    #     - Conversational or poetic styles where punctuation is intentionally omitted
-
-    #     【Complete Sentence Detection Logic Example】
-    #     1. Check if the sentence ends with one of the following terminal forms:
-    #     - Verb terminal form (e.g., 「行う」「行いました」「行ないます」)
-    #     - Adjective terminal form (e.g., 「高い」「低かった」)
-    #     - Noun + auxiliary verb “だ/です” (e.g., 「方針です」「必要だ」)
-    #     - Noun + particle “である” (e.g., 「重要である」)
-    #     2. If the sentence ends with a comma 「、」, treat it as incomplete
-    #     3. If the sentence ends with closing brackets or quotation marks (「」, （）), check the part outside the brackets for terminal form
-    #     4. If the sentence ends in a terminal form but lacks 「。」, flag as missing punctuation
-
-    #     【Checks】
-    #     1. Sentence-ending punctuation:
-    #     - If a complete sentence does not end with 「。」, suggest adding it
-    #     - If it already ends with 「。」, no correction is needed
-    #     2. Comma usage:
-    #     - Excessive: 「、」 appears repeatedly in an unnatural way within the same clause
-    #     - Missing: The sentence is too long and hard to read without commas
-    #     - Do not flag stylistically natural omissions (e.g., 「好感され月間では下落し」)
-
-    #     **Example**：
-    #     {example_2}
-    #     """,
+    
         f"""
         **Omission of Particles (助詞の省略・誤用) Detection**
         - Detect omissions of the particles「の」「を」「は」.All other cases are excluded from the check.
@@ -6696,6 +5247,7 @@ def get_prompt(corrected):
         f"""
         **Incorrect Verb Usage of Compound Noun Phrases（複合名詞の誤動詞化）**
         - Detect grammatically incorrect use of compound noun phrases such as「買い付け」「売り付け」「買い建て」when used in verb forms like「買い付けた」「売り付けた」.
+        - ❗ **Do not include or modify any expressions involving 「行う」「行なう」and their conjugations (行い・行って・行なって・行われ・行なわれる・行わない etc.). These are valid verbs and not compound-noun misuse.**
         
         **Proofreading Requirements**:
         - Compound noun phrases such as「値上がり」「買い付け」「売り付け」「買い建て」must not be used as if they were conjugatable verbs.
@@ -6707,10 +5259,17 @@ def get_prompt(corrected):
     ]
 
     for target_prompt in prompt_list:
+        # 助詞チェックなどには補足ルールを追加
         if "助詞の省略" in target_prompt:
             special_word = "- **動詞の連用形や文中の接続助詞前の活用形は正しい表現として認め、文末形などへの変更を求めないこと。**"
         else:
             special_word = ""
+
+        if "Typographical Errors" in target_prompt or "Incorrect Verb Usage" in target_prompt:
+            skip_notice = "- **送り仮名（行う・行なう 系列）は校正対象外。これらに関する誤りは指摘しないこと。**"
+        else:
+            skip_notice = ""
+
         common_result = f"""
         You are a professional Japanese proofreading assistant specializing in official financial documents.
         あなたは金融機関の公式文書に特化した日本語校正アシスタントです。
@@ -6723,6 +5282,7 @@ def get_prompt(corrected):
         - あくまで機械的・ルールベースの確認のみ行い、スタイルの好みは介入しないこと。
         - 曖昧なケースや判断に迷う場合は「修正不要」と判断すること。
         {special_word}
+        {skip_notice}
         - 修正する場合、必ず文法的に正しく、自然な文であること。
         - 修正は文法・語形・表記の客観的エラーに限る。
         - 原文に明らかな問題がない限り、修正を加えてはならない。
@@ -6739,18 +5299,6 @@ def get_prompt(corrected):
         yield common_result
 
 
-
-def detect_hyogai_kanji(input_text, hyogaiKanjiList):
-    corrected_map = {}
-    for char in input_text:
-        if char in hyogaiKanjiList:
-            # 常用外漢字の読みまたは代替語をここでは仮に「？」としています。
-            # 実際には、文脈に応じて適切な読みや代替語を設定する必要があります。
-            replacement = f"<span style=\"color:red;\">?</span> (<span>修正理由: 常用外漢字の使用 <s style=\"background:yellow;color:red\">{char}</s> → ?</span>)"
-            corrected_map[char] = replacement
-            input_text = input_text.replace(char, replacement) # 逐次的に置換
-
-    return input_text
 
 @app.route('/api/opt_kanji', methods=['POST'])
 def opt_kanji():
@@ -7146,19 +5694,61 @@ def loop_in_ruru(input):
             }
             }
         ]
+        },
+        {
+        "category": "Missing Comma Detection（読点欠落検知）",
+        "rule_id": "3.2",
+        "description": (
+            "文中に『こと』『など』『を受けて』『中』などの構文が複数含まれるにもかかわらず、"
+            "適切な読点（、）が欠落している箇所を検出します。"
+            "特に『こと、などを背景に』『を受けて、』『中、』のような自然な区切りがない場合を警告します。"
+        ),
+        "requirements": [
+            {
+                "condition": "『ことなどを背景に』が出現し、直前に読点がない",
+                "correction": "『こと、などを背景に』に修正"
+            },
+            {
+                "condition": "『を受けて』の直後に読点がない",
+                "correction": "『を受けて、』に修正"
+            },
+            {
+                "condition": "『中』の直後に名詞または助詞が続く場合で、読点がない",
+                "correction": "『中、』に修正"
+            }
+        ],
+        "output_format": (
+            "'original': 'Sentence missing comma', "
+            "'correct': 'Sentence with proper comma placement', "
+            "'reason': '文中に読点が欠けている可能性があります。'"
+        ),
+        "Examples": [
+            {
+                "Input": "トランプ米大統領が関税措置を延長したことやパウエルFRB議長が示唆したことなどを背景に上昇しました。",
+                "Output": {
+                    "original": "ことなどを背景に",
+                    "correct": "こと、などを背景に",
+                    "reason": "文中に読点が欠けている可能性があります。"
+                }
+            },
+            {
+                "Input": "パウエルFRB議長の発言などを受けて9月の利下げ期待が高まりました。",
+                "Output": {
+                    "original": "を受けて9月",
+                    "correct": "を受けて、9月",
+                    "reason": "文中に読点が欠けている可能性があります。"
+                }
+            },
+            {
+                "Input": "金融政策などのマクロ環境がクレジットに与える影響が低下することが見込まれる中銘柄選択の重要性が高まる。",
+                "Output": {
+                    "original": "中銘柄",
+                    "correct": "中、銘柄",
+                    "reason": "文中に読点が欠けている可能性があります。"
+                }
+            }
+        ]
         }
-        # ,{
-        #     "category": "主語の欠落チェック",
-        #     "rule_id": "4.0",
-        #     "description": "日本語の文で、誰が・何がを示す主語が省略されると文が不自然になり、読み手に誤解を与える可能性があります。特に金融文書やレポートでは、主語を明確にすることで責任主体や動作主体が正確に伝わります。主語が欠けている場合は、文脈に基づき「同社」「市場」「決算発表」などを補う形で修正してください。",
-        #     "output_format": "'original': 'Incorrect text', 'correct': 'Corrected text', 'reason': '主語が欠落しており、誰が示唆したのかが不明確で不自然です。金融文書では動作の主体を明確にする必要があります。'",
-        #     "Examples": [
-        #         {
-        #             "Input": "オランダ株は大手半導体製造装置メーカーの2025年4－6月期受注額は市場予想を上回ったものの、2026年の成長が期待できないと示唆したことなどを背景に下落しました。",
-        #             "Output": "'original': '2026年の成長が期待できないと示唆した', 'correct': '同社が2026年の成長が期待できないことを示唆した', 'reason': '主語が欠落しており、「誰が示唆したのか」が分からないため不自然です。主語を補うことで文意が明確になります。'"
-        #         }
-        #     ]
-        # }
     ]
 
     for ruru_split in ruru_all:
@@ -7178,8 +5768,8 @@ def loop_in_ruru(input):
         Preserve the original sentence structure and paragraph formatting unless explicitly instructed otherwise.
         If no corrections are needed for a section, explicitly state "No errors detected" (検出された誤りなし).
         Follow all instructions strictly and proceed only according to the rules provided.:
-        
-        Do not correct or modify kana orthography variations (e.g., 「行なう」 vs 「行う」), unless explicitly instructed.
+
+        Do not correct or modify kana orthography variations (e.g., 「行い」「行った」「行われ」「行われる」「行わない」 vs 「行なう」「行ない」「行なって」「行なった」「行なわれ」「行なわれる」「行なわない」), unless explicitly instructed.
         Do not apply standardization unless listed in the rules.
         
         **Report Content to Proofread:**
@@ -7257,12 +5847,6 @@ def opt_wording():
         _content = opt_common(input,sec_prompt,pdf_base64,pageNumber,False,False,False,False,False)
         
         return _content
-    
-        # loop = asyncio.new_event_loop()
-        # asyncio.set_event_loop(loop)
-        # _content = loop.run_until_complete(opt_common_wording(file_name,fund_type,input,prompt_result,excel_base64,pdf_base64,resutlmap,upload_type,comment_type,icon,pageNumber))
-        
-        # return _content
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -7341,11 +5925,17 @@ def get_words(converted_data, fund_type):
             continue
         if re.search(r"現在|詳しくは、|（運用実績、分配金は、|4月のJ-|あります）。|当ファンド|この報告書は、ファンドの運用状|）。|パフォーマンス動向は|当月の投資配分|買い建てし|買い付けしなどをした|贅沢品株の買|などの", afterChange):
             continue
+        # 1019 新增过滤规则：如果原文以「す。」「た。」「は、」开头则跳过
+        if re.match(r"^(す。|た。|は、|と、|で、|も、|え、|お、|り、|に、|また、)", beforeChange):
+            continue
         # 827 fix
         if afterChange == "。" and beforeChange == "":
             continue
         # 903 fix
         if afterChange == "東京エレクトロンは社会効率化、":
+            continue
+        # 1010 fix
+        if afterChange == "更新していません。市場概況市場コメント":
             continue
         ignore_list = [
         "○。",
@@ -7363,8 +5953,26 @@ def get_words(converted_data, fund_type):
         "BBOTT LABORATORIES\nアボットラボラトリーズ。",
         "EALTH GROUP INC\nユナイテッドヘルス・グループ。",
         "NSON & JOHNSON\nジョンソン・エンド・ジョンソン。",
-        "CIENTIFIC CORP\nボストン・サイエンティフィック。"
+        "CIENTIFIC CORP\nボストン・サイエンティフィック。",
+        "銘柄を目指す",
+        "銘柄を",
+        "の環境関連",
+        "環境関連の",
+        "5MASTERCARD INCは",
+        "権利関連の",
+        "3BROADCOM INCは",
+        "8BOSTON SCIENTIFIC CORPは",
+        "こと",
+        "すること",
+        "）"
         ]
+        ignore_regex = [
+        r"◆作成：\s*受益者用資料\s*\d+/\d+。$",  # 页码不固定
+        r"◆設定・運用は[\s\S]*?2。$"             # 容忍中间换行
+        ]
+        # 匹配判断：完全匹配或正则命中
+        if any(re.search(p, afterChange) for p in ignore_regex):
+            continue
 
         if afterChange in ignore_list:
             continue
@@ -7381,24 +5989,19 @@ def get_words(converted_data, fund_type):
 def save_corrections():
     try:
         data = request.get_json()
-        corrections = data.get('corrections','')
-        fund_type = data.get("fund_type",'')
-        pdf_base64 = data.get("pdf_base64",'')
-        file_name_decoding = data.get('file_name','')
-        icon = data.get('icon','')
-        # URL Decoding
-        file_name = urllib.parse.unquote(file_name_decoding)
+        corrections = data.get('corrections', '')
+        fund_type = data.get("fund_type", '')
+        pdf_base64 = data.get("pdf_base64", '')
+        file_name_decoding = data.get('file_name', '')
+        icon = data.get('icon', '')
 
-        # match = re.search(r'(\d{0,}(?:-\d+)?_M\d{4})', file_name)
-        # if match:
-        #     file_id = match.group(1)
-        # else:
-        #     file_id = file_name
+        # URL 解码
+        file_name = urllib.parse.unquote(file_name_decoding)
 
         if not file_name or not isinstance(corrections, list):
             return jsonify({"success": False, "error": "file_name 和 corrections(list)."}), 400
         
-        # container name Setting
+        # Cosmos DB 容器选择
         container_name = f"{fund_type}_Fund"
         # 2. Cosmos DB 连接
         container = get_db_connection(container_name)
@@ -7409,15 +6012,51 @@ def save_corrections():
             enable_cross_partition_query=True
         ))
 
-        # corrections
+        # === Step 1: 获取并清洗 existing_corrections ===
         existing_corrections = []
         if existing_item:
             result = existing_item[0].get("result", {})
             existing_corrections = result.get("corrections", [])
+            if isinstance(existing_corrections, list) and existing_corrections:
+                existing_corrections = get_words(existing_corrections, fund_type)
 
+        # === Step 2: 清洗新 corrections ===
         corrections = get_words(corrections, fund_type)
-        final_corrections  = existing_corrections + corrections
 
+        # === Step 3: 合并并过滤掉无效坐标 ===
+        final_corrections = existing_corrections + corrections
+
+        def is_valid_location(locations):
+            """只要存在任意一个有效坐标即可保留"""
+            if not locations or not isinstance(locations, list):
+                return False
+            for loc in locations:
+                try:
+                    if any(float(loc[k]) != 0 for k in ("x0", "x1", "y0", "y1")):
+                        return True
+                except Exception:
+                    continue
+            return False
+
+        filtered_corrections = []
+        for c in final_corrections:
+            # 跳过无效坐标项
+            if not is_valid_location(c.get("locations", [])):
+                continue
+            filtered_corrections.append(c)
+        final_corrections = filtered_corrections
+
+        # === Step 4: 去重 ===
+        seen = set()
+        unique_corrections = []
+        for c in final_corrections:
+            key = (c.get("page"), c.get("original_text"), c.get("comment"))
+            if key not in seen:
+                seen.add(key)
+                unique_corrections.append(c)
+        final_corrections = unique_corrections
+
+        # === Step 5: 保存至 Cosmos DB ===
         item = {
             'id': file_name,
             'fileName': file_name,
@@ -7427,26 +6066,22 @@ def save_corrections():
             },
             'updateTime': datetime.utcnow().isoformat(),
         }
-        
 
         if not existing_item:
             container.create_item(body=item)
-            logging.info(f"✅ Cosmos DB Update Success: {file_name}")
+            logging.info(f"✅ Cosmos DB Insert Success: {file_name}")
         else:
             existing_item[0].update(item)
             container.upsert_item(existing_item[0])
+            logging.info(f"🔄 Cosmos DB Update Success: {file_name}")
 
-            logging.info(f"🔄 Cosmos DB update success: {file_name}")
-
+        # === Step 6: 生成高亮 PDF（如提供 PDF）===
         if not pdf_base64:
             return jsonify({"success": True, "message": "Data Update Success"}), 200
         
         try:
             pdf_bytes = base64.b64decode(pdf_base64)
-
-            # Save temporarily (in memory or disk), generate a token or filename
-            updated_pdf = add_comments_to_pdf(pdf_bytes, corrections)
-           
+            updated_pdf = add_comments_to_pdf(pdf_bytes, final_corrections, fund_type=fund_type)
 
             # rename file_name add suffix _checked
             root, ext = os.path.splitext(file_name)
@@ -7470,16 +6105,6 @@ def save_corrections():
                     return jsonify({"success": False, "error": str(e)}), 400
                 except Exception as e:
                     return jsonify({"success": False, "error": str(e)}), 500
-
-            
-
-            # temp_path = os.path.join("/tmp", temp_filename)
-
-            # with open(temp_path, "wb") as f:
-            #     f.write(updated_pdf.read())
-            #     updated_pdf.seek(0)
-
-
             return jsonify({
                 "success": True,
                 "corrections": corrections,
@@ -7490,9 +6115,6 @@ def save_corrections():
             return jsonify({"success": False, "error": str(e)}), 400
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 500
-
-        
-    
     except CosmosHttpResponseError as e:
         logging.error(f"Cosmos DB Error: {str(e)}")
         return jsonify({"success": False, "error": "DB Error"}), 500
@@ -7500,39 +6122,6 @@ def save_corrections():
         logging.error(f"Server error: {str(e)}")
         return jsonify({"success": False, "error": "Server error"}), 500
     
-#th for test api
-
-@app.route("/api/integrated_test", methods=["POST"])
-async def integrated_test():
-    data = request.json
-    prompt = data.get("prompt", "")
-    input_data = data.get("input_data", "")
-    flag_type = data.get("flag_type", "")
-    base64_img = data.get("base64_img", "")
-    token = token_cache.get_token()
-    openai.api_key = token
-
-    if prompt and input_data:
-        question = [
-            {"role": "system", "content": "あなたは日本語文書の校正アシスタントです"},
-            {"role": "user", "content": input_data}
-        ]
-        if flag_type == "picture":
-            question.append({"role": "user", "content": [{"type": "text", "text": input_data},
-                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_img}"}}]})
-        else:
-            question.append({"role": "user", "content": input_data})
-
-        response = await openai.ChatCompletion.acreate(
-            deployment_id=deployment_id,  # Deploy Name
-            messages=question,
-            max_tokens=MAX_TOKENS,
-            temperature=TEMPERATURE,
-            seed=SEED  # seed
-        )
-        answer = response['choices'][0]['message']['content'].strip()
-        return jsonify({"response_ai": answer})
-
 @app.after_request
 def after_request(response):
     try:
@@ -7618,10 +6207,6 @@ def extract_pdf_table_special(pdf_path):
 
 
 # 清除样式
-# def clean_text(text):
-#     if not text:
-#         return ""
-#     return re.sub(r'\s+', '', text.replace('\n', '').strip())
 def clean_text(text):
     if pd.isna(text):   # Excel 空单元格或 NaN 情况
         return ""
@@ -8442,7 +7027,7 @@ def check_tenbrend(filename, fund_type):
                         # ✅ 差异更新
                         matched_item = matched[0]
                         matched_item["組入銘柄解説"] = desc
-                        container.replace_item(item=matched_item["id"], body=matched_item)
+                        # container.replace_item(item=matched_item["id"], body=matched_item)
 
                         diff_rows.append({
                             "filename": filename,
@@ -8580,7 +7165,7 @@ def check_tenbrend(filename, fund_type):
                         matched_item = matched[0]
                         matched_item["組入銘柄解説"] = desc
                         matched_item["最高益更新回数"] = esg
-                        container.replace_item(item=matched_item["id"], body=matched_item)
+                        # container.replace_item(item=matched_item["id"], body=matched_item)
 
                         diff_rows.append({
                             "filename": filename,
@@ -8742,7 +7327,7 @@ def handle_sheet_plus42(pdf_url, fcode, sheetname, fund_type, container, filenam
                         "組入銘柄解説": desc,
                         "ESGへの取り組みが企業価値向上に資する理由": esg
                     })
-                    container.replace_item(item=matched_item["id"], body=matched_item)
+                    # container.replace_item(item=matched_item["id"], body=matched_item)
 
                     diff_rows.append({
                         "filename": filename,
@@ -9013,7 +7598,7 @@ def handle_sheet_plus41(pdf_url, fcode, sheetname, fund_type, container, filenam
                         "組入銘柄解説": desc,
                         "ESGへの取り組みが企業価値向上に資する理由": esg
                     })
-                    container.replace_item(item=matched_item["id"], body=matched_item)
+                    # container.replace_item(item=matched_item["id"], body=matched_item)
 
                     diff_rows.append({
                         "filename": filename,
@@ -9259,7 +7844,7 @@ def handle_sheet_plus4(pdf_url, fcode, sheetname, fund_type, container, filename
                     matched_item = matched[0]
                     matched_item["組入銘柄解説"] = desc
                     matched_item["上場年月"] = esg
-                    container.replace_item(item=matched_item["id"], body=matched_item)
+                    # container.replace_item(item=matched_item["id"], body=matched_item)
 
                     diff_rows.append({
                         "filename": filename,
@@ -9466,7 +8051,7 @@ def handle_sheet_plus5(pdf_url, fcode, sheetname, fund_type, container, filename
                         "組入銘柄解説": desc,
                         "ESGへの取り組みが企業価値向上に資する理由": esg
                     })
-                    container.replace_item(item=matched_item["id"], body=matched_item)
+                    # container.replace_item(item=matched_item["id"], body=matched_item)
 
                     diff_rows.append({
                         "filename": filename,
@@ -9703,7 +8288,7 @@ def handle_sheet_plus_si4(pdf_url, fcode, sheetname, fund_type, container, filen
                 if classify:
                     matched_item = matched[0]
                     matched_item["組入銘柄解説"] = desc
-                    container.replace_item(item=matched_item["id"], body=matched_item)
+                    # container.replace_item(item=matched_item["id"], body=matched_item)
 
                     diff_rows.append({
                         "filename": filename,
@@ -10004,7 +8589,7 @@ def handle_sheet_plus_si5(pdf_url, fcode, sheetname, fund_type, container, filen
                         "コメント": desc,
                         "ESGコメント": esg
                     })
-                    container.replace_item(item=matched_item["id"], body=matched_item)
+                    # container.replace_item(item=matched_item["id"], body=matched_item)
 
                     diff_rows.append({
                         "filename": filename,
