@@ -2951,9 +2951,49 @@ def _normalize_text(text: str) -> str:
 
 def find_locations_in_pdf(pdf_bytes, corrections):
     """
-    改进版：基于 page.get_text("blocks") 的跨行文本查找。
-    可识别被换行或分块的 original_text。
+    精确定位（行内合并版）：
+    - 仅标注匹配文本矩形。
+    - 若多行之间的垂直距离 < 行高阈值（默认10pt），则自动合并为一行。
     """
+    import fitz
+
+    def merge_rects(rects):
+        """合并多个矩形为一个包围框"""
+        if not rects:
+            return None
+        x0 = min(r.x0 for r in rects)
+        y0 = min(r.y0 for r in rects)
+        x1 = max(r.x1 for r in rects)
+        y1 = max(r.y1 for r in rects)
+        return fitz.Rect(x0, y0, x1, y1)
+
+    def rect_area(r):
+        return max(0, r.width) * max(0, r.height)
+
+    def rect_to_dict(r):
+        return {"x0": float(r.x0), "y0": float(r.y0), "x1": float(r.x1), "y1": float(r.y1)}
+
+    def merge_close_lines(rects, y_threshold=10):
+        """
+        将垂直方向上相距很近的矩形合并为一个（多列换行合并）。
+        rects: list[fitz.Rect]
+        y_threshold: 行距阈值，单位pt
+        """
+        if not rects:
+            return rects
+        rects = sorted(rects, key=lambda r: (r.y0, r.x0))
+        merged = []
+        current = rects[0]
+        for r in rects[1:]:
+            # 如果上下重叠或间距在阈值内 → 视为同一行合并
+            if r.y0 - current.y1 <= y_threshold:
+                current = merge_rects([current, r])
+            else:
+                merged.append(current)
+                current = r
+        merged.append(current)
+        return merged
+
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception as e:
@@ -2963,69 +3003,109 @@ def find_locations_in_pdf(pdf_bytes, corrections):
         page_num = correction.get("page", 0)
         original_text = str(correction.get("original_text", "")).strip()
 
-        # 无效页码或空文本 → 返回占位
         if not original_text or page_num < 0 or page_num >= len(doc):
             correction["locations"] = [{"x0": 0, "y0": 0, "x1": 0, "y1": 0}]
             continue
 
         page = doc[page_num]
+        pw, ph = page.rect.width, page.rect.height
+        page_area = pw * ph
+
         found_locations = []
-
-        # 获取页面上的所有文本块
-        blocks = page.get_text("blocks")
-
         matched = False
-        for b in blocks:
-            block_text = b[4].replace("\n", "")
-            # --- 精确包含匹配 ---
-            if original_text in block_text:
-                found_locations.append({
-                    "x0": b[0],
-                    "y0": b[1],
-                    "x1": b[2],
-                    "y1": b[3]
-                })
-                matched = True
-            # --- 模糊匹配：处理折行或断块 ---
-            elif len(original_text) > 20:
-                head = original_text[:15]
-                tail = original_text[-15:]
-                if head in block_text or tail in block_text:
-                    found_locations.append({
-                        "x0": b[0],
-                        "y0": b[1],
-                        "x1": b[2],
-                        "y1": b[3]
-                    })
-                    matched = True
 
-        # 如果上述方式未找到，再尝试原始 search_for 兜底
+        # --- ① search_for 精确匹配 ---
+        try:
+            hits = page.search_for(original_text)
+        except Exception:
+            hits = []
+        if hits:
+            for h in hits:
+                r = fitz.Rect(h)
+                found_locations.append(r)
+            matched = True
+
+        # --- ② 字符级回退 ---
         if not matched:
-            text_instances = page.search_for(original_text)
-            if text_instances:
-                for inst in text_instances:
-                    rect = fitz.Rect(inst)
-                    found_locations.append({
-                        "x0": rect.x0,
-                        "y0": rect.y0,
-                        "x1": rect.x1,
-                        "y1": rect.y1
-                    })
-                matched = True
+            rd = page.get_text("rawdict")
+            chars = []
+            line_key = 0
+            for b in rd.get("blocks", []):
+                for l in b.get("lines", []):
+                    for s in l.get("spans", []):
+                        if "chars" in s and s["chars"]:
+                            for ch in s["chars"]:
+                                c = ch.get("c", "")
+                                bbox = ch.get("bbox", None)
+                                if not bbox:
+                                    continue
+                                chars.append((c, fitz.Rect(bbox), line_key))
+                        else:
+                            text = s.get("text", "")
+                            bbox = s.get("bbox", None)
+                            if not bbox or not text:
+                                continue
+                            r = fitz.Rect(bbox)
+                            for c in text:
+                                chars.append((c, r, line_key))
+                    line_key += 1
 
-        # 如果仍未找到，则记录 0 坐标
+            full_text = "".join(c for c, _, _ in chars)
+            start = 0
+            occs = []
+            while True:
+                pos = full_text.find(original_text, start)
+                if pos == -1:
+                    break
+                occs.append((pos, pos + len(original_text)))
+                start = pos + 1
+
+            if occs:
+                for (sidx, eidx) in occs:
+                    by_line = {}
+                    for i in range(sidx, eidx):
+                        if i < 0 or i >= len(chars):
+                            continue
+                        _, r, lk = chars[i]
+                        by_line.setdefault(lk, []).append(r)
+
+                    line_rects = []
+                    for lk, rects in by_line.items():
+                        mr = merge_rects(rects)
+                        if mr:
+                            line_rects.append(mr)
+
+                    # 合并垂直距离很近的矩形（多列换行）
+                    merged_lines = merge_close_lines(line_rects, y_threshold=10)
+
+                    safe_rects = []
+                    for r in merged_lines:
+                        area_ratio = rect_area(r) / page_area if page_area else 0
+                        if r.is_empty or r.width <= 0 or r.height <= 0:
+                            continue
+                        if area_ratio > 0.25 or r.height > ph * 0.4:
+                            continue
+                        safe_rects.append(r)
+
+                    if not safe_rects and merged_lines:
+                        mr_all = merge_rects(merged_lines)
+                        area_ratio = rect_area(mr_all) / page_area if page_area else 0
+                        if mr_all and area_ratio <= 0.25 and mr_all.height <= ph * 0.5:
+                            safe_rects = [mr_all]
+
+                    if safe_rects:
+                        found_locations.extend(safe_rects)
+                        matched = True
+
+        # --- ③ 无匹配时占位 ---
         if not matched:
             print(f"Warning: Text '{original_text[:20]}...' not found on page {page_num}.")
-            found_locations.append({
-                "x0": 0,
-                "y0": 0,
-                "x1": 0,
-                "y1": 0
-            })
-        # 写回 corrections
+            found_locations.append(fitz.Rect(0, 0, 0, 0))
+
+        # --- 写回结果 ---
         if "locations" not in corrections[idx]:
             corrections[idx]["locations"] = []
-        corrections[idx]["locations"].extend(found_locations)
+        corrections[idx]["locations"].extend([rect_to_dict(r) for r in found_locations])
 
     doc.close()
     return corrections
@@ -5695,60 +5775,6 @@ def loop_in_ruru(input):
                 "correct": "収益の大半を銅製品が占める",
                 "reason": "二重主語を避けるため、正しい助詞『を』を使用"
             }
-            }
-        ]
-        },
-        {
-        "category": "Missing Comma Detection（読点欠落検知）",
-        "rule_id": "3.2",
-        "description": (
-            "文中に『こと』『など』『を受けて』『中』などの構文が複数含まれるにもかかわらず、"
-            "適切な読点（、）が欠落している箇所を検出します。"
-            "特に『こと、などを背景に』『を受けて、』『中、』のような自然な区切りがない場合を警告します。"
-        ),
-        "requirements": [
-            {
-                "condition": "『ことなどを背景に』が出現し、直前に読点がない",
-                "correction": "『こと、などを背景に』に修正"
-            },
-            {
-                "condition": "『を受けて』の直後に読点がない",
-                "correction": "『を受けて、』に修正"
-            },
-            {
-                "condition": "『中』の直後に名詞または助詞が続く場合で、読点がない",
-                "correction": "『中、』に修正"
-            }
-        ],
-        "output_format": (
-            "'original': 'Sentence missing comma', "
-            "'correct': 'Sentence with proper comma placement', "
-            "'reason': '文中に読点が欠けている可能性があります。'"
-        ),
-        "Examples": [
-            {
-                "Input": "トランプ米大統領が関税措置を延長したことやパウエルFRB議長が示唆したことなどを背景に上昇しました。",
-                "Output": {
-                    "original": "ことなどを背景に",
-                    "correct": "こと、などを背景に",
-                    "reason": "文中に読点が欠けている可能性があります。"
-                }
-            },
-            {
-                "Input": "パウエルFRB議長の発言などを受けて9月の利下げ期待が高まりました。",
-                "Output": {
-                    "original": "を受けて9月",
-                    "correct": "を受けて、9月",
-                    "reason": "文中に読点が欠けている可能性があります。"
-                }
-            },
-            {
-                "Input": "金融政策などのマクロ環境がクレジットに与える影響が低下することが見込まれる中銘柄選択の重要性が高まる。",
-                "Output": {
-                    "original": "中銘柄",
-                    "correct": "中、銘柄",
-                    "reason": "文中に読点が欠けている可能性があります。"
-                }
             }
         ]
         }
