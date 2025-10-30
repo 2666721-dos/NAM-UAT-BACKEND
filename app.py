@@ -4775,11 +4775,6 @@ def ruru_ask_gpt():
                         continue
                     elif any(k in reason for k in negative_keywords):
                         # 明確な不一致・誤り表現 → 不整合
-                        pass
-                    elif any(k in reason for k in positive_keywords):
-                        # 一般的な肯定表現 → 整合
-                        continue
-                    else: 
                         corrections.append({
                             "focus": focus,
                             "reference": reference,
@@ -4791,6 +4786,9 @@ def ruru_ask_gpt():
                             "locations": [],
                             "intgr": True, 
                         })
+                    elif any(k in reason for k in positive_keywords):
+                        # 一般的な肯定表現 → 整合
+                        continue
             else:
                 segments = []
                 segments= extract_parts_with_direction(input)
