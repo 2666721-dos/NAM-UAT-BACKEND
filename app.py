@@ -4715,6 +4715,8 @@ def ruru_ask_gpt():
                 f"{reference}",
                 "【Focus（焦点）】",
                 f"{masked_focus}",
+                "【Target_condition（判定条件）】",
+                f"{target_condition}",
                 "【Input（原文／要約文）】",
                 f"{input}",
                 "【Result（結果データ）】",
