@@ -4749,6 +4749,8 @@ def ruru_ask_gpt():
                         "方向性が異なる", "方向性が一致していません",
                         "正確ではない", "誤差", "差異", "差がある", "ポイントの差", "ずれ", "違い"
                     ]
+                    # 明確な正面否定表現（最優先）
+                    positive_strict = ["誤りはない", "誤りがない", "誤りではない"]
                     positive_keywords = [
                         # 基本的な判断用語
                         "妥当", "正しい", "問題なし", "不整合は認められません", "適切", "整合している",
@@ -4765,9 +4767,14 @@ def ruru_ask_gpt():
                     ]
                     if not reason:
                         continue
+                    elif any(k in reason for k in positive_strict):
+                        # 「誤りはない」などの肯定否定文が含まれている場合は完全に整合
+                        continue
                     elif any(k in reason for k in negative_keywords):
+                        # 明確な不一致・誤り表現 → 不整合
                         pass
                     elif any(k in reason for k in positive_keywords):
+                        # 一般的な肯定表現 → 整合
                         continue
 
                     corrections.append({
