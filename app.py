@@ -4744,6 +4744,9 @@ def ruru_ask_gpt():
                 for once in _parsed_data:
                     error_data = once.get("original", "")
                     reason = once.get("reason", "")
+                    negative_keywords = [
+                        "不一致", "一致していません", "異なる", "逆", "誤り", "不整合", "矛盾", "方向性が異なる"
+                    ]
                     positive_keywords = [
                         # 基本的な判断用語
                         "妥当", "正しい", "問題なし", "不整合は認められません", "適切", "整合している",
@@ -4758,8 +4761,13 @@ def ruru_ask_gpt():
                         "数値の誤りはない", "方向性の誤りはない", "整合性は取れている",
                         "方向性が一致", "値が一致", "内容は一致", "概ね一致", "概ね同程度"
                     ]
-                    if not reason or any(k in reason for k in positive_keywords):
+                    if not reason:
                         continue
+                    elif any(k in reason for k in negative_keywords):
+                        pass
+                    elif any(k in reason for k in positive_keywords):
+                        continue
+
                     corrections.append({
                         "focus": focus,
                         "reference": reference,
