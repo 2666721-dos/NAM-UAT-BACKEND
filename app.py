@@ -4770,7 +4770,7 @@ def ruru_ask_gpt():
                     ]
                     if not reason:
                         continue
-                    elif re.search(r"誤り(?:[はが]|では)?(?:ない|ありません)", reason):
+                    elif re.search(r"誤り(?:[はが]|では)?(?:ない|ありません|認められ(?:ない|ません)|確認され(?:ない|ません)|見当た[らり](?:ない|ません))", reason):
                         # 「誤りはない」などの肯定否定文が含まれている場合は完全に整合
                         continue
                     elif any(k in reason for k in negative_keywords):
@@ -4779,18 +4779,18 @@ def ruru_ask_gpt():
                     elif any(k in reason for k in positive_keywords):
                         # 一般的な肯定表現 → 整合
                         continue
-
-                    corrections.append({
-                        "focus": focus,
-                        "reference": reference,
-                        "page": pageNumber,
-                        "original_text": clean_percent_prefix(error_data),
-                        "check_point": input,
-                        "comment": f"{error_data} → {reason}", 
-                        "reason_type":"整合性不正検知", 
-                        "locations": [],
-                        "intgr": True, 
-                    })
+                    else: 
+                        corrections.append({
+                            "focus": focus,
+                            "reference": reference,
+                            "page": pageNumber,
+                            "original_text": clean_percent_prefix(error_data),
+                            "check_point": input,
+                            "comment": f"{error_data} → {reason}", 
+                            "reason_type":"整合性不正検知", 
+                            "locations": [],
+                            "intgr": True, 
+                        })
             else:
                 segments = []
                 segments= extract_parts_with_direction(input)
