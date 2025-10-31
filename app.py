@@ -4749,11 +4749,24 @@ def ruru_ask_gpt():
                 for once in _parsed_data:
                     error_data = once.get("original", "")
                     reason = once.get("reason", "")
-                    negative_keywords = [
-                        "不一致", "一致していません", "異なる", "逆", "誤り", "不整合", "矛盾", 
-                        "方向性が異なる", "方向性が一致していません",
-                        "正確ではない", "誤差", "差異", "差がある", "ポイントの差", "ずれ", "違い"
+                    negative_patterns = [
+                        r"不一致",
+                        r"一致していません",
+                        r"異な(?:る|り|っている|りました|ります)",
+                        r"誤り",
+                        r"不整合",
+                        r"矛盾",
+                        r"方向性が異なる",
+                        r"方向性が一致していません",
+                        r"逆",
+                        r"誤差(?!は(?:小さい|僅か|極めて小さい|範囲内))",
+                        r"差異",
+                        r"差がある",
+                        r"ポイントの差",
+                        r"ずれ",
+                        r"違い",
                     ]
+
                     positive_keywords = [
                         # 基本的な判断用語
                         "妥当", "正しい", "問題なし", "不整合は認められません", "適切", "整合している",
@@ -4773,7 +4786,7 @@ def ruru_ask_gpt():
                     elif re.search(r"誤り(?:[はが]|では)?(?:ない|ありません|認められ(?:ない|ません)|確認され(?:ない|ません)|見当た[らり](?:ない|ません))", reason):
                         # 「誤りはない」などの肯定否定文が含まれている場合は完全に整合
                         continue
-                    elif any(k in reason for k in negative_keywords):
+                    elif any(re.search(p, reason) for p in negative_patterns):
                         # 明確な不一致・誤り表現 → 不整合
                         corrections.append({
                             "focus": focus,
