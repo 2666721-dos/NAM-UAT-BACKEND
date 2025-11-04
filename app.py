@@ -50,6 +50,10 @@ import jaconv
 import regex as regcheck
 import unicodedata
 from itertools import groupby
+import random
+from typing import Optional, List
+
+
 
 # 日志格式定义 (时间格式，日志级别，消息)
 log_format = '%(asctime)sZ: [%(levelname)s] %(message)s'
@@ -169,6 +173,11 @@ COSMOS_DB_URI = os.getenv("COSMOS_DB_URI")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 CONTAINER_NAME = os.getenv("CONTAINER_NAME")  # debug not used
 
+# Cosmos Global Connection
+GLOBAL_COSMOS_DB_URI = os.getenv("COSMOS_DB_URI_GLOBAL","")
+GLOBAL_DATABASE_NAME = os.getenv("DATABASE_NAME_GLOBAL")
+GLOBAL_CONTAINER_NAME = os.getenv("CONTAINER_NAME_GLOBAL")
+
 # Azure Storage
 ACCOUNT_URL = os.getenv("ACCOUNT_URL")
 STORAGE_CONTAINER_NAME = os.getenv("STORAGE_CONTAINER_NAME")
@@ -187,6 +196,30 @@ def get_db_connection(CONTAINER):
     print("Connected to Azure Cosmos DB SQL API")
     logging.info("Connected to Azure Cosmos DB SQL API")
     return container  # Cosmos DB
+
+
+def get_global_db_connection(CONTAINER):
+    """
+    使用 DefaultAzureCredential (Managed Identity) 连接 PRD Cosmos DB。
+    """
+    try:
+        # --- 重点修改：使用 DefaultAzureCredential ---
+        # DefaultAzureCredential 会自动查找环境中的 Managed Identity 或其他有效的 Azure 凭证
+        credential = DefaultAzureCredential()
+
+        # 使用 PRD 的 URI 和 MI 凭证连接
+        client = CosmosClient(GLOBAL_COSMOS_DB_URI, credential=credential)
+        database = client.get_database_client(GLOBAL_DATABASE_NAME)
+        container = database.get_container_client(CONTAINER)
+        
+        print(f"Connected to Azure global Cosmos DB (PRD) using Managed Identity.")
+        logging.info("Connected to Azure global Cosmos DB (PRD) using Managed Identity.")
+        return container
+    except Exception as e:
+        print(f"Failed to connect to PRD Cosmos DB using MI: {e}")
+        logging.error(f"Failed to connect to PRD Cosmos DB using MI: {e}")
+        # 抛出异常，以便上层调用者可以处理连接失败
+        raise
 
 #-----------------------------------------------------------------
 LOG_RECORD_CONTAINER_NAME = "log_record"
@@ -2951,14 +2984,20 @@ def _normalize_text(text: str) -> str:
 
 def find_locations_in_pdf(pdf_bytes, corrections):
     """
-    精确定位（行内合并版）：
-    - 仅标注匹配文本矩形。
-    - 若多行之间的垂直距离 < 行高阈值（默认10pt），则自动合并为一行。
+    最终版（针对日文PDF跨行/断句优化）：
+    - 支持「決定しまし\nた」「決定しま\nした」等断行。
+    - 支持部分匹配（例：GPT输出「決定しました以下のように」）。
+    - 不依赖 PyMuPDF block 结构，只依赖 word 流顺序。
+    - 仅返回首个匹配矩形。
     """
-    import fitz
+    def compact(s: str) -> str:
+        return re.sub(r"[\s\u3000\n]+", "", s or "")
+
+    def rect_to_dict(r):
+        return {"x0": float(r.x0), "y0": float(r.y0),
+                "x1": float(r.x1), "y1": float(r.y1)}
 
     def merge_rects(rects):
-        """合并多个矩形为一个包围框"""
         if not rects:
             return None
         x0 = min(r.x0 for r in rects)
@@ -2967,148 +3006,78 @@ def find_locations_in_pdf(pdf_bytes, corrections):
         y1 = max(r.y1 for r in rects)
         return fitz.Rect(x0, y0, x1, y1)
 
-    def rect_area(r):
-        return max(0, r.width) * max(0, r.height)
-
-    def rect_to_dict(r):
-        return {"x0": float(r.x0), "y0": float(r.y0), "x1": float(r.x1), "y1": float(r.y1)}
-
-    def merge_close_lines(rects, y_threshold=10):
-        """
-        将垂直方向上相距很近的矩形合并为一个（多列换行合并）。
-        rects: list[fitz.Rect]
-        y_threshold: 行距阈值，单位pt
-        """
-        if not rects:
-            return rects
-        rects = sorted(rects, key=lambda r: (r.y0, r.x0))
-        merged = []
-        current = rects[0]
-        for r in rects[1:]:
-            # 如果上下重叠或间距在阈值内 → 视为同一行合并
-            if r.y0 - current.y1 <= y_threshold:
-                current = merge_rects([current, r])
-            else:
-                merged.append(current)
-                current = r
-        merged.append(current)
-        return merged
-
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception as e:
-        raise ValueError(f"无效 PDF 文件: {str(e)}")
+        raise ValueError(f"Invalid PDF file: {e}")
 
-    for idx, correction in enumerate(corrections):
+    for correction in corrections:
         page_num = correction.get("page", 0)
-        original_text = str(correction.get("original_text", "")).strip()
+        original_text = (correction.get("original_text") or "").strip()
+        found_locations = []
 
-        if not original_text or page_num < 0 or page_num >= len(doc):
-            correction["locations"] = [{"x0": 0, "y0": 0, "x1": 0, "y1": 0}]
+        if page_num < 0 or page_num >= len(doc):
             continue
 
         page = doc[page_num]
-        pw, ph = page.rect.width, page.rect.height
-        page_area = pw * ph
 
-        found_locations = []
-        matched = False
+        # ① 优先直接匹配
+        hits = page.search_for(original_text)
 
-        # --- ① search_for 精确匹配 ---
-        try:
-            hits = page.search_for(original_text)
-        except Exception:
-            hits = []
-        if hits:
-            for h in hits:
-                r = fitz.Rect(h)
-                found_locations.append(r)
-            matched = True
+        # ② 若失败，则执行 word 流紧凑匹配
+        if not hits and original_text:
+            words = page.get_text("words")
+            if not words:
+                correction["locations"] = [{"x0":0,"y0":0,"x1":0,"y1":0}]
+                continue
 
-        # --- ② 字符级回退 ---
-        if not matched:
-            rd = page.get_text("rawdict")
-            chars = []
-            line_key = 0
-            for b in rd.get("blocks", []):
-                for l in b.get("lines", []):
-                    for s in l.get("spans", []):
-                        if "chars" in s and s["chars"]:
-                            for ch in s["chars"]:
-                                c = ch.get("c", "")
-                                bbox = ch.get("bbox", None)
-                                if not bbox:
-                                    continue
-                                chars.append((c, fitz.Rect(bbox), line_key))
-                        else:
-                            text = s.get("text", "")
-                            bbox = s.get("bbox", None)
-                            if not bbox or not text:
-                                continue
-                            r = fitz.Rect(bbox)
-                            for c in text:
-                                chars.append((c, r, line_key))
-                    line_key += 1
+            word_texts = [w[4] for w in words]
+            word_rects = [fitz.Rect(w[:4]) for w in words]
 
-            full_text = "".join(c for c, _, _ in chars)
-            start = 0
-            occs = []
-            while True:
-                pos = full_text.find(original_text, start)
-                if pos == -1:
-                    break
-                occs.append((pos, pos + len(original_text)))
-                start = pos + 1
+            # ---- 构造紧凑全文 ----
+            compact_words = [compact(t) for t in word_texts if t.strip()]
+            compact_stream = "".join(compact_words)
 
-            if occs:
-                for (sidx, eidx) in occs:
-                    by_line = {}
-                    for i in range(sidx, eidx):
-                        if i < 0 or i >= len(chars):
-                            continue
-                        _, r, lk = chars[i]
-                        by_line.setdefault(lk, []).append(r)
+            # ---- 构造 index->word 映射 ----
+            index_map = []
+            for wi, wtxt in enumerate(compact_words):
+                index_map.extend([wi] * len(wtxt))
 
-                    line_rects = []
-                    for lk, rects in by_line.items():
-                        mr = merge_rects(rects)
-                        if mr:
-                            line_rects.append(mr)
+            # ---- 生成匹配目标（取前缀以防跨段）----
+            target_full = compact(original_text)
+            # 优先尝试完整串
+            pos = compact_stream.find(target_full)
 
-                    # 合并垂直距离很近的矩形（多列换行）
-                    merged_lines = merge_close_lines(line_rects, y_threshold=10)
+            # 若找不到，用前缀（截取到"以下"等前的部分）
+            if pos == -1:
+                stops = ["以下", "。", "、", "（", "(", "：", ":", "　", " "]
+                cut = min([target_full.find(s) for s in stops if target_full.find(s) > 0] or [len(target_full)])
+                target_prefix = target_full[:cut]
+                # 若仍过长，只取前10~12字符
+                if len(target_prefix) > 12:
+                    target_prefix = target_prefix[:12]
+                pos = compact_stream.find(target_prefix)
 
-                    safe_rects = []
-                    for r in merged_lines:
-                        area_ratio = rect_area(r) / page_area if page_area else 0
-                        if r.is_empty or r.width <= 0 or r.height <= 0:
-                            continue
-                        if area_ratio > 0.25 or r.height > ph * 0.4:
-                            continue
-                        safe_rects.append(r)
+            # ---- 命中后合并坐标 ----
+            if pos != -1 and index_map:
+                start_w = index_map[pos]
+                end_w = index_map[min(pos + len(target_full) - 1, len(index_map) - 1)]
+                rect = merge_rects(word_rects[start_w:end_w + 1])
+                if rect:
+                    hits = [rect]
 
-                    if not safe_rects and merged_lines:
-                        mr_all = merge_rects(merged_lines)
-                        area_ratio = rect_area(mr_all) / page_area if page_area else 0
-                        if mr_all and area_ratio <= 0.25 and mr_all.height <= ph * 0.5:
-                            safe_rects = [mr_all]
+        # ③ 输出结果
+        if not hits:
+            print(f"⚠ Not found: {original_text}")
+            found_locations.append({"x0": 0, "y0": 0, "x1": 0, "y1": 0})
+        else:
+            found_locations.append(rect_to_dict(hits[0]))
 
-                    if safe_rects:
-                        found_locations.extend(safe_rects)
-                        matched = True
-
-        # --- ③ 无匹配时占位 ---
-        if not matched:
-            print(f"Warning: Text '{original_text[:20]}...' not found on page {page_num}.")
-            found_locations.append(fitz.Rect(0, 0, 0, 0))
-
-        # --- 写回结果 ---
-        if "locations" not in corrections[idx]:
-            corrections[idx]["locations"] = []
-        corrections[idx]["locations"].extend([rect_to_dict(r) for r in found_locations])
+        correction["locations"] = found_locations
 
     doc.close()
     return corrections
+
 
 # db and save blob
 PUBLIC_FUND_CONTAINER_NAME = "public_Fund"
@@ -4588,7 +4557,6 @@ def ruru_ask_gpt():
                 seed=SEED  # seed
             )
             _answer = response['choices'][0]['message']['content'].strip().strip().replace("`", "").replace("json", "", 1)
-            response_content = response['choices'][0]['message']['content']
             _parsed_data = ast.literal_eval(_answer)
             _similar = _parsed_data.get("target")
 
@@ -4598,8 +4566,6 @@ def ruru_ask_gpt():
 
             for re_result in matches_list:  
                 corrections.append({
-                        "flag":1,
-                        "response_content": response_content,
                         "page": pageNumber,
                         "original_text": re_result,
                         "check_point": re_result,
@@ -4729,6 +4695,7 @@ def ruru_ask_gpt():
                 f"{input}",
                 "【Result（結果データ）】",
                 f"{result}"
+
                 ]
 
 
@@ -4745,7 +4712,6 @@ def ruru_ask_gpt():
                 temperature=TEMPERATURE,
                 seed=SEED
             )
-            response_content = response['choices'][0]['message']['content']
             _answer = response['choices'][0]['message']['content'].strip().strip().replace("`", "").replace("json", "", 1)
             _parsed_data = ast.literal_eval(_answer)
             if _parsed_data:
@@ -4805,6 +4771,7 @@ def ruru_ask_gpt():
                     elif any(k in reason for k in positive_keywords):
                         # 一般的な肯定表現 → 整合
                         continue
+                        
             else:
                 segments = []
                 segments= extract_parts_with_direction(input)
@@ -4812,8 +4779,6 @@ def ruru_ask_gpt():
                 for part in segments:
                     if part:
                         corrections.append({
-                            "flag":2,
-                            "response_content": response_content,
                             "focus": focus,
                             "page": pageNumber,
                             "original_text": part.strip(),
@@ -4834,7 +4799,6 @@ def ruru_ask_gpt():
                     return jsonify({"success": False, "error": str(e)}), 500
         if not corrections:
             corrections.append({
-                "flag":3,
                 "reference": reference,
                 "focus": focus,
                 "page": pageNumber,
@@ -6111,7 +6075,7 @@ def save_corrections():
         filtered_corrections = []
         for c in final_corrections:
             # 跳过无效坐标项
-            if not is_valid_location(c.get("locations", [])):
+            if not is_valid_location(c.get("locations", [])) :
                 continue
             filtered_corrections.append(c)
         final_corrections = filtered_corrections
@@ -6219,6 +6183,155 @@ def after_request(response):
 
     finally:
         return response
+    
+@app.route('/api/call_openai_with_global_lock', methods=['POST'])
+def call_openai_with_global_lock():
+    """ 
+    通过 Cosmos DB 的全局锁机制严格控制并发，确保同一时间只有一个 OpenAI 调用在执行。
+    此版本支持可选的、格式为PNG的内存中图片输入，以用于多模态模型。
+    """
+    data = request.json
+    messages = data.get("messages", [])
+    image_bytes = data.get("image_bytes", None)
+    try:
+        # ✅ 调用改为 openai_with_global_lock
+        response = openai_with_global_lock(
+            messages=messages,
+            image_bytes=image_bytes
+        )
+        return jsonify(response), 200
+    except Exception as e:
+        logging.error(f"OpenAI Lock Error: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+def openai_with_global_lock(
+    messages: List[dict],
+    image_bytes: Optional[bytes] = None
+) -> dict:
+    """
+    通过 Cosmos DB 的全局锁机制严格控制并发，确保同一时间只有一个 OpenAI 调用在执行。
+    此版本支持可选的、格式为PNG的内存中图片输入，以用于多模态模型。
+
+    Args:
+        messages (list): 要发送给 OpenAI API 的消息列表。
+        image_bytes (Optional[bytes]): 可选的、在内存中的 PNG 图片二进制数据。
+
+    Returns:
+        dict: OpenAI API 的成功响应。
+
+    Raises:
+        Exception: 如果 OpenAI 调用失败或发生其他严重错误。
+    """
+    # --- 全局锁配置常量 ---
+    LOCK_CONTAINER_NAME = "openai_global_lock"
+    LOCK_DOCUMENT_ID = "master_lock"
+    RETRY_INTERVAL_SECONDS = 5
+    PROCESSING_TIMEOUT_MINUTES = 3
+
+    client_real = CosmosClient("https://nricosmosdb1.documents.azure.com:443/", credential=credential)
+    database_real = client_real.get_database_client("file_db")
+    lock_container = database_real.get_container_client(LOCK_CONTAINER_NAME)
+    lock_acquired = False
+    token = token_cache.get_token()
+    openai.api_key = token
+    
+    # 1. 循环尝试获取全局锁
+    while not lock_acquired:
+        try:
+            lock_doc = lock_container.read_item(item=LOCK_DOCUMENT_ID, partition_key=LOCK_DOCUMENT_ID)
+
+            if lock_doc['status'] == 'busy':
+                timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=PROCESSING_TIMEOUT_MINUTES)
+                locked_at_time = datetime.fromisoformat(lock_doc['locked_at'])
+                
+                if locked_at_time < timeout_threshold:
+                    print("检测到全局锁超时，强制释放...")
+                    lock_doc['status'] = 'available'
+                    lock_doc['locked_at'] = None
+                    try:
+                        lock_container.replace_item(item=lock_doc, body=lock_doc)
+                        print("全局锁已被成功释放。")
+                        lock_doc = lock_container.read_item(item=LOCK_DOCUMENT_ID, partition_key=LOCK_DOCUMENT_ID)
+                    except CosmosHttpResponseError as e:
+                        if e.status_code == 412:
+                            print("释放锁时发生并发冲突，由其他进程接管。")
+                        else:
+                            raise
+            
+            if lock_doc['status'] == 'available':
+                lock_doc['status'] = 'busy'
+                lock_doc['locked_at'] = datetime.now(timezone.utc).isoformat()
+                lock_container.replace_item(item=lock_doc, body=lock_doc)
+                lock_acquired = True
+                print("成功获取全局锁。")
+            else:
+                print(f"全局锁被占用，将在 {RETRY_INTERVAL_SECONDS} 秒后重试...")
+                time.sleep(RETRY_INTERVAL_SECONDS)
+
+        except CosmosHttpResponseError as e:
+            if e.status_code == 412:
+                print("获取锁时发生并发冲突，立即重试...")
+                time.sleep(random.uniform(0.1, 0.5))
+                continue
+            else:
+                print(f"数据库操作失败，状态码: {e.status_code}")
+                raise
+        except Exception as e:
+            print(f"获取锁时发生未知错误: {e}")
+            time.sleep(RETRY_INTERVAL_SECONDS)
+            continue
+
+    # 2. 成功获取锁后，准备并执行 OpenAI 调用
+    try:
+        if image_bytes:
+            print("检测到图片输入，正在准备多模态消息...")
+            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+            user_prompt_text = messages[-1]['content']
+            
+            vision_message_content = [
+                {
+                    "type": "text",
+                    "text": user_prompt_text
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        # --- 修改点：在这里将图片格式硬编码为 'png' ---
+                        "url": f"data:image/png;base64,{base64_image}"
+                    }
+                }
+            ]
+            messages[-1]['content'] = vision_message_content
+
+        print("正在调用 Azure OpenAI API...")
+        
+        response = openai.ChatCompletion.create(
+            deployment_id=deployment_id,
+            messages=messages,
+            max_tokens=MAX_TOKENS,
+            temperature=TEMPERATURE,
+            seed=SEED
+        )
+        print("OpenAI API 调用成功。")
+        return response.to_dict()
+
+    except Exception as e:
+        print(f"OpenAI API 调用失败: {e}")
+        raise e
+
+    finally:
+        # 3. (关键) 无论成功或失败，都必须释放锁
+        if lock_acquired:
+            try:
+                lock_doc_to_release = lock_container.read_item(item=LOCK_DOCUMENT_ID, partition_key=LOCK_DOCUMENT_ID)
+                lock_doc_to_release['status'] = 'available'
+                lock_doc_to_release['locked_at'] = None
+                lock_container.replace_item(item=lock_doc_to_release, body=lock_doc_to_release)
+                print("全局锁已被成功释放。")
+            except Exception as e:
+                print(f"警告：释放全局锁失败: {e}。该锁将在下次超时检查时被强制释放。")
+
 
 
 #10铭柄新追加
