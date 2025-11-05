@@ -173,11 +173,6 @@ COSMOS_DB_URI = os.getenv("COSMOS_DB_URI")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 CONTAINER_NAME = os.getenv("CONTAINER_NAME")  # debug not used
 
-# Cosmos Global Connection
-GLOBAL_COSMOS_DB_URI = os.getenv("COSMOS_DB_URI_GLOBAL","")
-GLOBAL_DATABASE_NAME = os.getenv("DATABASE_NAME_GLOBAL")
-GLOBAL_CONTAINER_NAME = os.getenv("CONTAINER_NAME_GLOBAL")
-
 # Azure Storage
 ACCOUNT_URL = os.getenv("ACCOUNT_URL")
 STORAGE_CONTAINER_NAME = os.getenv("STORAGE_CONTAINER_NAME")
@@ -196,31 +191,6 @@ def get_db_connection(CONTAINER):
     print("Connected to Azure Cosmos DB SQL API")
     logging.info("Connected to Azure Cosmos DB SQL API")
     return container  # Cosmos DB
-
-
-def get_global_db_connection(CONTAINER):
-    """
-    使用 DefaultAzureCredential (Managed Identity) 连接 PRD Cosmos DB。
-    """
-    try:
-        # --- 重点修改：使用 DefaultAzureCredential ---
-        # DefaultAzureCredential 会自动查找环境中的 Managed Identity 或其他有效的 Azure 凭证
-        credential = DefaultAzureCredential()
-
-        # 使用 PRD 的 URI 和 MI 凭证连接
-        client = CosmosClient(GLOBAL_COSMOS_DB_URI, credential=credential)
-        database = client.get_database_client(GLOBAL_DATABASE_NAME)
-        container = database.get_container_client(CONTAINER)
-        
-        print(f"Connected to Azure global Cosmos DB (PRD) using Managed Identity.")
-        logging.info("Connected to Azure global Cosmos DB (PRD) using Managed Identity.")
-        return container
-    except Exception as e:
-        print(f"Failed to connect to PRD Cosmos DB using MI: {e}")
-        logging.error(f"Failed to connect to PRD Cosmos DB using MI: {e}")
-        # 抛出异常，以便上层调用者可以处理连接失败
-        raise
-
 #-----------------------------------------------------------------
 LOG_RECORD_CONTAINER_NAME = "log_record"
 FILE_MONITOR_ITEM = "file_monitor_item"
