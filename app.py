@@ -169,7 +169,8 @@ deployment_id = os.getenv("AZURE_OPENAI_MODEL")  # Get Deploy Name(mini-ZZ)
 _deployment_id = os.getenv("AZURE_OPENAI_MODEL_4")  # Get Deploy Name(mini-ZZ)
 
 # Cosmos DB 连接 
-COSMOS_DB_URI = os.getenv("COSMOS_DB_URI")
+COSMOS_DB_URI = os.getenv("COSMOS_DB_URI",'https://nricosmosdb1rpa.documents.azure.com:443/')
+logging.info(f"COSMOS_DB_URI: {COSMOS_DB_URI}")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 CONTAINER_NAME = os.getenv("CONTAINER_NAME")  # debug not used
 
