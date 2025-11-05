@@ -50,6 +50,10 @@ import jaconv
 import regex as regcheck
 import unicodedata
 from itertools import groupby
+import random
+from typing import Optional, List
+
+
 
 # 日志格式定义 (时间格式，日志级别，消息)
 log_format = '%(asctime)sZ: [%(levelname)s] %(message)s'
@@ -169,6 +173,11 @@ COSMOS_DB_URI = os.getenv("COSMOS_DB_URI")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 CONTAINER_NAME = os.getenv("CONTAINER_NAME")  # debug not used
 
+# Cosmos Global Connection
+GLOBAL_COSMOS_DB_URI = os.getenv("COSMOS_DB_URI_GLOBAL","")
+GLOBAL_DATABASE_NAME = os.getenv("DATABASE_NAME_GLOBAL")
+GLOBAL_CONTAINER_NAME = os.getenv("CONTAINER_NAME_GLOBAL")
+
 # Azure Storage
 ACCOUNT_URL = os.getenv("ACCOUNT_URL")
 STORAGE_CONTAINER_NAME = os.getenv("STORAGE_CONTAINER_NAME")
@@ -187,6 +196,30 @@ def get_db_connection(CONTAINER):
     print("Connected to Azure Cosmos DB SQL API")
     logging.info("Connected to Azure Cosmos DB SQL API")
     return container  # Cosmos DB
+
+
+def get_global_db_connection(CONTAINER):
+    """
+    使用 DefaultAzureCredential (Managed Identity) 连接 PRD Cosmos DB。
+    """
+    try:
+        # --- 重点修改：使用 DefaultAzureCredential ---
+        # DefaultAzureCredential 会自动查找环境中的 Managed Identity 或其他有效的 Azure 凭证
+        credential = DefaultAzureCredential()
+
+        # 使用 PRD 的 URI 和 MI 凭证连接
+        client = CosmosClient(GLOBAL_COSMOS_DB_URI, credential=credential)
+        database = client.get_database_client(GLOBAL_DATABASE_NAME)
+        container = database.get_container_client(CONTAINER)
+        
+        print(f"Connected to Azure global Cosmos DB (PRD) using Managed Identity.")
+        logging.info("Connected to Azure global Cosmos DB (PRD) using Managed Identity.")
+        return container
+    except Exception as e:
+        print(f"Failed to connect to PRD Cosmos DB using MI: {e}")
+        logging.error(f"Failed to connect to PRD Cosmos DB using MI: {e}")
+        # 抛出异常，以便上层调用者可以处理连接失败
+        raise
 
 #-----------------------------------------------------------------
 LOG_RECORD_CONTAINER_NAME = "log_record"
@@ -1719,7 +1752,7 @@ replace_rules = {
     'GDP': 'GDP（国内総生産）',
     'GPIF': '年金積立金管理運用独立行政法人（GPIF）',
     'GNP': 'GNP（国民総生産）',
-    'GST ※インドの場合': 'GST（物品・サービス税）',
+    'GST　※インドの場合': 'GST（物品・サービス税）',
     'IEA': 'IEA（国際エネルギー機関）',
     'IMF': 'IMF（国際通貨基金）',
     'IoT': 'IoT（モノのインターネット）',
@@ -2686,7 +2719,7 @@ def extract_text(input_text, original_text):
     # if any(word in original_text for word in okuri_targets):
     #     safe_text = regcheck.escape(original_text)
     #     # 允许：后面带（全角括号内容）或空格
-    #     pattern = rf"{safe_text}(（[^）]*）)?[  ]?"
+    #     pattern = rf"{safe_text}(（[^）]*）)?[ 　]?"
     #     match = regcheck.search(pattern, input_text)
     #     if match:
     #         return match.group(0)
@@ -2891,7 +2924,7 @@ def add_comments_to_excel(excel_bytes, corrections):
 #     replacements = {
 #         "（": "(", "）": ")", "【": "[", "】": "]",
 #         "「": "\"", "」": "\"", "『": "\"", "』": "\"",
-#         " ": " ", "○": "〇", "・": "･", 
+#         "　": " ", "○": "〇", "・": "･", 
 #         "–": "-", "―": "-", "−": "-", "ー": "-"
 #     }
 #     for k, v in replacements.items():
@@ -2911,7 +2944,7 @@ def _normalize_text(text: str) -> str:
     replacements = {
         "（": "(", "）": ")", "【": "[", "】": "]",
         "「": "\"", "」": "\"", "『": "\"", "』": "\"",
-        " ": " ", "○": "〇", "・": "･",
+        "　": " ", "○": "〇", "・": "･",
         "–": "-", "―": "-", "−": "-", "ー": "-",
         "％": "%", "，": ",", "．": ".", "：": ":", "；": ";",
     }
@@ -2937,7 +2970,7 @@ def _normalize_text(text: str) -> str:
     replacements = {
         "（": "(", "）": ")", "【": "[", "】": "]",
         "「": "\"", "」": "\"", "『": "\"", "』": "\"",
-        " ": " ", "○": "〇", "・": "･",
+        "　": " ", "○": "〇", "・": "･",
         "–": "-", "―": "-", "−": "-", "ー": "-",
         "％": "%", "，": ",", "．": ".", "：": ":", "；": ";",
     }
@@ -3017,7 +3050,7 @@ def find_locations_in_pdf(pdf_bytes, corrections):
 
             # 若找不到，用前缀（截取到"以下"等前的部分）
             if pos == -1:
-                stops = ["以下", "。", "、", "（", "(", "：", ":", " ", " "]
+                stops = ["以下", "。", "、", "（", "(", "：", ":", "　", " "]
                 cut = min([target_full.find(s) for s in stops if target_full.find(s) > 0] or [len(target_full)])
                 target_prefix = target_full[:cut]
                 # 若仍过长，只取前10~12字符
@@ -6150,6 +6183,155 @@ def after_request(response):
 
     finally:
         return response
+    
+@app.route('/api/call_openai_with_global_lock', methods=['POST'])
+def call_openai_with_global_lock():
+    """ 
+    通过 Cosmos DB 的全局锁机制严格控制并发，确保同一时间只有一个 OpenAI 调用在执行。
+    此版本支持可选的、格式为PNG的内存中图片输入，以用于多模态模型。
+    """
+    data = request.json
+    messages = data.get("messages", [])
+    image_bytes = data.get("image_bytes", None)
+    try:
+        # ✅ 调用改为 openai_with_global_lock
+        response = openai_with_global_lock(
+            messages=messages,
+            image_bytes=image_bytes
+        )
+        return jsonify(response), 200
+    except Exception as e:
+        logging.error(f"OpenAI Lock Error: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+def openai_with_global_lock(
+    messages: List[dict],
+    image_bytes: Optional[bytes] = None
+) -> dict:
+    """
+    通过 Cosmos DB 的全局锁机制严格控制并发，确保同一时间只有一个 OpenAI 调用在执行。
+    此版本支持可选的、格式为PNG的内存中图片输入，以用于多模态模型。
+
+    Args:
+        messages (list): 要发送给 OpenAI API 的消息列表。
+        image_bytes (Optional[bytes]): 可选的、在内存中的 PNG 图片二进制数据。
+
+    Returns:
+        dict: OpenAI API 的成功响应。
+
+    Raises:
+        Exception: 如果 OpenAI 调用失败或发生其他严重错误。
+    """
+    # --- 全局锁配置常量 ---
+    LOCK_CONTAINER_NAME = "openai_global_lock"
+    LOCK_DOCUMENT_ID = "master_lock"
+    RETRY_INTERVAL_SECONDS = 5
+    PROCESSING_TIMEOUT_MINUTES = 3
+
+    client_real = CosmosClient("https://nricosmosdb1.documents.azure.com:443/", credential=credential)
+    database_real = client_real.get_database_client("file_db")
+    lock_container = database_real.get_container_client(LOCK_CONTAINER_NAME)
+    lock_acquired = False
+    token = token_cache.get_token()
+    openai.api_key = token
+    
+    # 1. 循环尝试获取全局锁
+    while not lock_acquired:
+        try:
+            lock_doc = lock_container.read_item(item=LOCK_DOCUMENT_ID, partition_key=LOCK_DOCUMENT_ID)
+
+            if lock_doc['status'] == 'busy':
+                timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=PROCESSING_TIMEOUT_MINUTES)
+                locked_at_time = datetime.fromisoformat(lock_doc['locked_at'])
+                
+                if locked_at_time < timeout_threshold:
+                    print("检测到全局锁超时，强制释放...")
+                    lock_doc['status'] = 'available'
+                    lock_doc['locked_at'] = None
+                    try:
+                        lock_container.replace_item(item=lock_doc, body=lock_doc)
+                        print("全局锁已被成功释放。")
+                        lock_doc = lock_container.read_item(item=LOCK_DOCUMENT_ID, partition_key=LOCK_DOCUMENT_ID)
+                    except CosmosHttpResponseError as e:
+                        if e.status_code == 412:
+                            print("释放锁时发生并发冲突，由其他进程接管。")
+                        else:
+                            raise
+            
+            if lock_doc['status'] == 'available':
+                lock_doc['status'] = 'busy'
+                lock_doc['locked_at'] = datetime.now(timezone.utc).isoformat()
+                lock_container.replace_item(item=lock_doc, body=lock_doc)
+                lock_acquired = True
+                print("成功获取全局锁。")
+            else:
+                print(f"全局锁被占用，将在 {RETRY_INTERVAL_SECONDS} 秒后重试...")
+                time.sleep(RETRY_INTERVAL_SECONDS)
+
+        except CosmosHttpResponseError as e:
+            if e.status_code == 412:
+                print("获取锁时发生并发冲突，立即重试...")
+                time.sleep(random.uniform(0.1, 0.5))
+                continue
+            else:
+                print(f"数据库操作失败，状态码: {e.status_code}")
+                raise
+        except Exception as e:
+            print(f"获取锁时发生未知错误: {e}")
+            time.sleep(RETRY_INTERVAL_SECONDS)
+            continue
+
+    # 2. 成功获取锁后，准备并执行 OpenAI 调用
+    try:
+        if image_bytes:
+            print("检测到图片输入，正在准备多模态消息...")
+            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+            user_prompt_text = messages[-1]['content']
+            
+            vision_message_content = [
+                {
+                    "type": "text",
+                    "text": user_prompt_text
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        # --- 修改点：在这里将图片格式硬编码为 'png' ---
+                        "url": f"data:image/png;base64,{base64_image}"
+                    }
+                }
+            ]
+            messages[-1]['content'] = vision_message_content
+
+        print("正在调用 Azure OpenAI API...")
+        
+        response = openai.ChatCompletion.create(
+            deployment_id=deployment_id,
+            messages=messages,
+            max_tokens=MAX_TOKENS,
+            temperature=TEMPERATURE,
+            seed=SEED
+        )
+        print("OpenAI API 调用成功。")
+        return response.to_dict()
+
+    except Exception as e:
+        print(f"OpenAI API 调用失败: {e}")
+        raise e
+
+    finally:
+        # 3. (关键) 无论成功或失败，都必须释放锁
+        if lock_acquired:
+            try:
+                lock_doc_to_release = lock_container.read_item(item=LOCK_DOCUMENT_ID, partition_key=LOCK_DOCUMENT_ID)
+                lock_doc_to_release['status'] = 'available'
+                lock_doc_to_release['locked_at'] = None
+                lock_container.replace_item(item=lock_doc_to_release, body=lock_doc_to_release)
+                print("全局锁已被成功释放。")
+            except Exception as e:
+                print(f"警告：释放全局锁失败: {e}。该锁将在下次超时检查时被强制释放。")
+
 
 
 #10铭柄新追加
