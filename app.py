@@ -50,10 +50,6 @@ import jaconv
 import regex as regcheck
 import unicodedata
 from itertools import groupby
-import random
-from typing import Optional, List
-
-
 
 # 日志格式定义 (时间格式，日志级别，消息)
 log_format = '%(asctime)sZ: [%(levelname)s] %(message)s'
@@ -173,11 +169,6 @@ COSMOS_DB_URI = os.getenv("COSMOS_DB_URI")
 DATABASE_NAME = os.getenv("DATABASE_NAME")
 CONTAINER_NAME = os.getenv("CONTAINER_NAME")  # debug not used
 
-# Cosmos Global Connection
-GLOBAL_COSMOS_DB_URI = os.getenv("COSMOS_DB_URI_GLOBAL","")
-GLOBAL_DATABASE_NAME = os.getenv("DATABASE_NAME_GLOBAL")
-GLOBAL_CONTAINER_NAME = os.getenv("CONTAINER_NAME_GLOBAL")
-
 # Azure Storage
 ACCOUNT_URL = os.getenv("ACCOUNT_URL")
 STORAGE_CONTAINER_NAME = os.getenv("STORAGE_CONTAINER_NAME")
@@ -196,30 +187,6 @@ def get_db_connection(CONTAINER):
     print("Connected to Azure Cosmos DB SQL API")
     logging.info("Connected to Azure Cosmos DB SQL API")
     return container  # Cosmos DB
-
-
-def get_global_db_connection(CONTAINER):
-    """
-    使用 DefaultAzureCredential (Managed Identity) 连接 PRD Cosmos DB。
-    """
-    try:
-        # --- 重点修改：使用 DefaultAzureCredential ---
-        # DefaultAzureCredential 会自动查找环境中的 Managed Identity 或其他有效的 Azure 凭证
-        credential = DefaultAzureCredential()
-
-        # 使用 PRD 的 URI 和 MI 凭证连接
-        client = CosmosClient(GLOBAL_COSMOS_DB_URI, credential=credential)
-        database = client.get_database_client(GLOBAL_DATABASE_NAME)
-        container = database.get_container_client(CONTAINER)
-        
-        print(f"Connected to Azure global Cosmos DB (PRD) using Managed Identity.")
-        logging.info("Connected to Azure global Cosmos DB (PRD) using Managed Identity.")
-        return container
-    except Exception as e:
-        print(f"Failed to connect to PRD Cosmos DB using MI: {e}")
-        logging.error(f"Failed to connect to PRD Cosmos DB using MI: {e}")
-        # 抛出异常，以便上层调用者可以处理连接失败
-        raise
 
 #-----------------------------------------------------------------
 LOG_RECORD_CONTAINER_NAME = "log_record"
@@ -6188,13 +6155,33 @@ def after_request(response):
 def call_openai_with_global_lock():
     """ 
     通过 Cosmos DB 的全局锁机制严格控制并发，确保同一时间只有一个 OpenAI 调用在执行。
-    此版本支持可选的、格式为PNG的内存中图片输入，以用于多模态模型。
+    此版本支持：
+    - 纯 JSON 调用
+    - multipart/form-data 文件上传
+    - 自动识别 messages 类型（字符串 or list）
     """
-    data = request.json
+    # ✅ 自动兼容 JSON 与 multipart/form-data
+    data = request.get_json(silent=True)
+    if data is None:
+        data = request.form.to_dict()
+        file = request.files.get("image_bytes")
+        if file:
+            data["image_bytes"] = file.read()
+
+    # ✅ 自动解析 messages
     messages = data.get("messages", [])
+    if isinstance(messages, str):
+        try:
+            # 尝试将字符串解析为 JSON 数组
+            messages = json.loads(messages)
+        except Exception:
+            # 如果不是合法 JSON，包装成一个用户消息
+            messages = [{"role": "user", "content": messages}]
+
     image_bytes = data.get("image_bytes", None)
+
     try:
-        # ✅ 调用改为 openai_with_global_lock
+        # ✅ 调用原逻辑
         response = openai_with_global_lock(
             messages=messages,
             image_bytes=image_bytes
