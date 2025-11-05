@@ -50,6 +50,8 @@ import jaconv
 import regex as regcheck
 import unicodedata
 from itertools import groupby
+import random
+from typing import Optional, List
 
 # 日志格式定义 (时间格式，日志级别，消息)
 log_format = '%(asctime)sZ: [%(levelname)s] %(message)s'
