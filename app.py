@@ -2443,6 +2443,7 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
             })
 
 
+
     # 英略词
     if fund_type == 'public':
         results = opt_check_eng(input_text, replace_rules)
@@ -2934,7 +2935,6 @@ def _normalize_text(text: str) -> str:
 
 def find_locations_in_pdf(pdf_bytes, corrections):
     """
-<<<<<<< Updated upstream
     最终版（针对日文PDF跨行/断句优化）：
     - 支持「決定しまし\nた」「決定しま\nした」等断行。
     - 支持部分匹配（例：GPT输出「決定しました以下のように」）。
@@ -2957,11 +2957,6 @@ def find_locations_in_pdf(pdf_bytes, corrections):
         y1 = max(r.y1 for r in rects)
         return fitz.Rect(x0, y0, x1, y1)
 
-=======
-    改进版：基于 page.get_text("blocks") 的跨行文本查找。
-    可识别被换行或分块的 original_text。
-    """
->>>>>>> Stashed changes
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception as e:
@@ -2969,18 +2964,13 @@ def find_locations_in_pdf(pdf_bytes, corrections):
 
     for correction in corrections:
         page_num = correction.get("page", 0)
-<<<<<<< Updated upstream
         original_text = (correction.get("original_text") or "").strip()
         found_locations = []
-=======
-        original_text = str(correction.get("original_text", "")).strip()
->>>>>>> Stashed changes
 
         if page_num < 0 or page_num >= len(doc):
             continue
 
         page = doc[page_num]
-<<<<<<< Updated upstream
 
         # ① 优先直接匹配
         hits = page.search_for(original_text)
@@ -3035,65 +3025,6 @@ def find_locations_in_pdf(pdf_bytes, corrections):
             found_locations.append(rect_to_dict(hits[0]))
 
         correction["locations"] = found_locations
-=======
-        found_locations = []
-
-        # 获取页面上的所有文本块
-        blocks = page.get_text("blocks")
-
-        matched = False
-        for b in blocks:
-            block_text = b[4].replace("\n", "")
-            # --- 精确包含匹配 ---
-            if original_text in block_text:
-                found_locations.append({
-                    "x0": b[0],
-                    "y0": b[1],
-                    "x1": b[2],
-                    "y1": b[3]
-                })
-                matched = True
-            # --- 模糊匹配：处理折行或断块 ---
-            elif len(original_text) > 20:
-                head = original_text[:15]
-                tail = original_text[-15:]
-                if head in block_text or tail in block_text:
-                    found_locations.append({
-                        "x0": b[0],
-                        "y0": b[1],
-                        "x1": b[2],
-                        "y1": b[3]
-                    })
-                    matched = True
-
-        # 如果上述方式未找到，再尝试原始 search_for 兜底
-        if not matched:
-            text_instances = page.search_for(original_text)
-            if text_instances:
-                for inst in text_instances:
-                    rect = fitz.Rect(inst)
-                    found_locations.append({
-                        "x0": rect.x0,
-                        "y0": rect.y0,
-                        "x1": rect.x1,
-                        "y1": rect.y1
-                    })
-                matched = True
-
-        # 如果仍未找到，则记录 0 坐标
-        if not matched:
-            print(f"Warning: Text '{original_text[:20]}...' not found on page {page_num}.")
-            found_locations.append({
-                "x0": 0,
-                "y0": 0,
-                "x1": 0,
-                "y1": 0
-            })
-        # 写回 corrections
-        if "locations" not in corrections[idx]:
-            corrections[idx]["locations"] = []
-        corrections[idx]["locations"].extend(found_locations)
->>>>>>> Stashed changes
 
     doc.close()
     return corrections
@@ -4573,15 +4504,8 @@ def ruru_ask_gpt():
                 "以下の要約文(Input)を、結果(Result)と比較し、数値や意味に関して正しいかをチェックしてください。",
     
                 "【最重要ルール（最優先）】",
-<<<<<<< Updated upstream
                 "Example_Text、Target_condition、Focus 内に含まれる数値は比較対象に使用してはいけません。必ず Result 内から取得した数値のみを用いて、Input の対応部分と比較してください。つまり、比較・判定に使用できる数値の出所は Result に限定されます。",
                 "加えて、Example_Text 内に「プラスやマイナスは関係なく」「絶対値」「同程度」などの語句が含まれる場合は、Reference にこれらの語が存在する場合と同様に、Result 内の数値比較を絶対値基準で行ってください。",
-=======
-                "Org_Text、Target_condition、Focus 内に含まれる数値は比較対象に使用してはいけません。必ず Result 内から取得した数値のみを用いて、Input の対応部分と比較してください。つまり、比較・判定に使用できる数値の出所は Result に限定されます。",
-                "【最重要ルール（最優先）】",
-                "Org_Text、Target_condition、Focus 内に含まれる数値は比較対象に使用してはいけません。必ず Result 内から取得した数値のみを用いて、Input の対応部分と比較してください。つまり、比較・判定に使用できる数値の出所は Result に限定されます。",
-                "加えて、Org_Text 内に「プラスやマイナスは関係なく」「絶対値」「同程度」などの語句が含まれる場合は、Reference にこれらの語が存在する場合と同様に、Result 内の数値比較を絶対値基準で行ってください。",
->>>>>>> Stashed changes
                 "この場合、符号の違い（プラス／マイナス）は完全に無視し、絶対値の差が許容範囲（例：10％以内）に収まるかどうかのみを基準に判断してください。符号の違いを理由に『誤り』『誤解を招く』『方向性が異なる』『逆である』等の表現を使用してはいけません。",
                 "この絶対値比較ルールが適用される場合、方向性一致ルール（上昇／下落の一致判定）は適用せず、結果の整合性を絶対値基準でのみ判断します。"
 
@@ -4724,12 +4648,7 @@ def ruru_ask_gpt():
                         "矛盾は認められません", "相違は確認されません", "誤差の範囲",
                         # GPT 自然な表現を使うこともあります
                         "数値の誤りはない", "方向性の誤りはない", "整合性は取れている",
-<<<<<<< Updated upstream
                         "方向性が一致", "値が一致", "内容は一致", "概ね一致", "概ね同程度","記載内容は正確"
-=======
-                        "方向性が一致", "値が一致", "内容は一致", "概ね一致", "概ね同程度"
-                        "方向性が一致", "値が一致", "内容は一致", "概ね一致", "概ね同程度"
->>>>>>> Stashed changes
                     ]
                     if not reason:
                         continue
