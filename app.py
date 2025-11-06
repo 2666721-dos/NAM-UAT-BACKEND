@@ -6022,7 +6022,6 @@ def openai_with_global_lock(
             if lock_doc['status'] == 'busy':
                 timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=PROCESSING_TIMEOUT_MINUTES)
                 locked_at_time = datetime.fromisoformat(lock_doc['locked_at'])
-                time.sleep(120) # 等待一段时间，避免频繁检查锁状态
                 if locked_at_time < timeout_threshold:
                     print("检测到全局锁超时，强制释放...")
                     lock_doc['status'] = 'available'
