@@ -590,6 +590,7 @@ def gpt_extract_content(input_text: str, image_bytes: Optional[bytes] = None) ->
     """
     prompt = "\n".join(PROMPT_RULES) + f"\n\n【対象テキスト】\n{input_text}"
 
+    # 构造消息格式，与原始 ChatCompletion 相同
     messages = [
         {"role": "system", "content": "You are a professional fund report text extraction expert."},
         {"role": "user", "content": prompt}
@@ -2256,28 +2257,21 @@ def check_fullwidth_period(sentence):
 
 #---------------------------------------------------------------------------
 
-# 1106 fix
-def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_list):
+# 0623 debug
+def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list):
     corrections = []
-    
-    # ----------------------------------------------------------------------
-    # ✅ 1. 统一处理输入并生成用于检查的 processed_list
-    # ----------------------------------------------------------------------
-    
-    # 将 input_list 中的所有元素连接成一个单一的原始文本字符串
-    # 如果 input_list 是字符串（如 input_text），则直接使用它。
-    try:
-        raw_text = "".join(input_list) 
-    except TypeError:
-        raw_text = input_list
-    
-    # 按换行符 \n 分割文本，进行清理。这是解决句点漏报的关键步骤。
-    processed_list = [s.strip() for s in raw_text.split('\n') if s.strip()]
-    
-    # -------------------
-    # 常用外汉字
+    # ✅ --- 新增：input_list 自动预处理 ---
+    if not input_list or (isinstance(input_list, list) and len(input_list) == 1 and '\n' in str(input_list[0])):
+        # 自动将多行文本拆成句子列表
+        input_list = [s.strip() for s in input_text.split('\n') if s.strip()]
+    elif isinstance(input_list, str):
+        input_list = [s.strip() for s in input_list.split('\n') if s.strip()]
+
+#-------------------
+    #常用外汉字
     common_par = r"((啞|蛙|鴉|埃|挨|曖|靄|軋|斡|按|庵|鞍|闇|已|夷|畏|韋|帷|萎|椅|葦|彙|飴|謂|閾|溢|鰯|尹|咽|殷|淫|隕|蔭|于|迂|盂|烏|鬱|云|暈|穢|曳|洩|裔|穎|嬰|翳|腋|曰|奄|宛|怨|俺|冤|袁|婉|焉|堰|淵|焰|筵|厭|鳶|燕|閻|嚥|嗚|凰|嘔|鴨|甕|襖|謳|鶯|鷗|鸚|臆|俤|瓜|呵|苛|珂|迦|訛|訶|跏|嘩|瑕|榎|窩|蝦|蝸|鍋|顆|牙|瓦|臥|俄|峨|訝|蛾|衙|駕|芥|乖|廻|徊|恢|晦|堺|潰|鞋|諧|檜|蟹|咳|崖|蓋|漑|骸|鎧|喀|廓|摑|攪|愕|萼|諤|顎|鰐|樫|絣|筈|葛|闊|鰹|萱|奸|串|旱|函|咸|姦|宦|柑|竿|悍|桓|涵|菅|嵌|鉗|澗|翰|諫|瞰|檻|灌|玩|雁|翫|頷|癌|贋|几|卉|其|祁|耆|埼|悸|揆|毀|箕|畿|窺|諱|徽|櫃|妓|祇|魏|蟻|掬|麴|吃|屹|拮|謔|仇|臼|汲|灸|咎|邱|柩|笈|躬|厩|嗅|舅|炬|渠|裾|噓|墟|鋸|遽|欅|匈|怯|俠|脇|莢|竟|卿|僑|嬌|蕎|鋏|頰|橿|疆|饗|棘|髷|巾|僅|禽|饉|狗|惧|軀|懼|俱|喰|寓|窟|粂|偈|荊|珪|畦|脛|頃|痙|詣|禊|閨|稽|頸|髻|蹊|鮭|繫|睨|戟|隙|抉|頁|訣|蕨|姸|倦|虔|捲|牽|喧|硯|腱|鍵|瞼|鹼|呟|眩|舷|諺|乎|姑|狐|股|涸|菰|袴|壺|跨|糊|醐|齬|亢|勾|叩|尻|吼|肛|岡|庚|杭|肴|咬|垢|巷|恍|恰|狡|桁|胱|崗|梗|喉|腔|蛤|幌|煌|鉤|敲|睾|膏|閤|膠|篝|縞|薨|糠|藁|鮫|壙|曠|劫|毫|傲|壕|濠|嚙|轟|剋|哭|鵠|乞|忽|惚|昏|痕|渾|褌|叉|些|嗟|蓑|磋|坐|挫|晒|柴|砦|犀|賽|鰓|榊|柵|炸|窄|簀|刹|拶|紮|撒|薩|珊|餐|纂|霰|攢|讃|斬|懺|仔|弛|此|址|祀|屍|屎|柿|茨|恣|砥|祠|翅|舐|疵|趾|斯|覗|嗜|滓|獅|幟|摯|嘴|熾|髭|贄|而|峙|痔|餌|竺|雫|𠮟|悉|蛭|嫉|膝|櫛|柘|洒|娑|這|奢|闍|杓|灼|綽|錫|雀|惹|娶|腫|諏|鬚|呪|竪|綬|聚|濡|襦|帚|酋|袖|羞|葺|蒐|箒|皺|輯|鍬|繡|蹴|讐|鷲|廿|揉|絨|粥|戌|閏|楯|馴|杵|薯|藷|汝|抒|鋤|妾|哨|秤|娼|逍|廂|椒|湘|竦|鈔|睫|蛸|鉦|摺|蔣|裳|誦|漿|蕭|踵|鞘|篠|聳|鍾|醬|囁|杖|茸|嘗|擾|攘|饒|拭|埴|蜀|蝕|燭|褥|沁|芯|呻|宸|疹|蜃|滲|賑|鍼|壬|訊|腎|靱|塵|儘|笥|祟|膵|誰|錐|雖|隋|隧|芻|趨|鮨|丼|凄|栖|棲|甥|貰|蜻|醒|錆|臍|瀞|鯖|脆弱?|贅|脊|戚|晰|蹟|泄|屑|浙|啜|楔|截|尖|苫|穿|閃|陝|釧|揃|煎|羨|腺|詮|煽|箋|撰|箭|賤|蟬|癬|喘|膳|狙|疽|疏|甦|楚|鼠|遡|蘇|齟|爪|宋|炒|叟|蚤|曾|湊|葱|搔|槍|漕|箏|噌|瘡|瘦|踪|艘|薔|甑|叢|藪|躁|囃|竈|鰺|仄|捉|塞|粟|杣|遜|噂|樽|鱒|侘|咤|詫|陀|拿|荼|唾|舵|楕|驒|苔|殆|堆|碓|腿|頽|戴|醍|托|鐸|凧|襷|燵|坦|疸|耽|啖|蛋|毯|湛|痰|綻|憚|歎|簞|譚|灘|雉|馳|蜘|緻|筑|膣|肘|冑|紐|酎|厨|蛛|註|誅|疇|躊|佇|楮|箸|儲|瀦|躇|吊|帖|喋|貼|牒|趙|銚|嘲|諜|寵|捗|枕|槌|鎚|辻|剃|挺|釘|掟|梯|逞|啼|碇|鼎|綴|鄭|薙|諦|蹄|鵜|荻|擢|溺|姪|轍|辿|唸|塡|篆|顚|囀|纏|佃|淀|澱|臀|兎|妬|兜|堵|屠|賭|宕|沓|套|疼|桶|淘|萄|逗|棹|樋|蕩|鄧|橙|濤|檮|櫂|禱|撞|禿|瀆|栃|咄|沌|遁|頓|吞|貪|邇|匂|韮|涅|禰|捏|捻|撚|膿|囊|杷|爬|琶|頗|播|芭|罵|蟇|胚|徘|牌|稗|狽|煤|帛|柏|剝|粕|箔|莫|駁|瀑|曝|畠|捌|撥|潑|醱|筏|跋|噺|氾|汎|叛|袢|絆|斑|槃|幡|攀|挽|磐|蕃|屁|庇|砒|脾|痺|鄙|誹|臂|枇|毘|梶|媚|琵|薇|靡|疋|畢|逼|謬|豹|憑|瓢|屛|廟|牝|瀕|憫|鬢|斧|阜|訃|俯|釜|腑|孵|鮒|巫|葡|撫|蕪|諷|祓|吻|扮|焚|糞|幷|聘|蔽|餅|斃|袂|僻|璧|襞|蔑|瞥|扁|篇|騙|娩|鞭|哺|圃|蒲|戊|牡|姥|菩|呆|彷|庖|苞|疱|捧|逢|蜂|蓬|鞄|鋒|牟|芒|茫|虻|榜|膀|貌|鉾|謗|吠|卜|勃|梵|昧|邁|枡|俣|沫|迄|曼|蔓|瞞|饅|鬘|鰻|蜜|鵡|冥|瞑|謎|麵|蒙|朦|勿|籾|悶|揶|爺|鑓|喩|揄|愈|楡|尤|釉|楢|猷|飫|輿|孕|妖|拗|涌|痒|傭|熔|瘍|蠅|沃|螺|萊|蕾|洛|埒|拉|辣|瀾|爛|鸞|狸|裡|罹|籬|戮|慄|掠|笠|溜|榴|劉|瘤|侶|梁|聊|菱|寥|蓼|淋|燐|鱗|屢|蛉|蠣|櫟|礫|轢|煉|漣|憐|簾|鰊|攣|賂|魯|濾|廬|櫓|蘆|鷺|弄|牢|狼|榔|瘻|﨟|臘|朧|蠟|籠|聾|肋|勒|漉|麓|窪|歪|猥|隈|或|罠|椀|碗|彎|一旦).{,5})"
     common_list = regcheck.findall(common_par, input_text)
+    
     for word in common_list:
         reason_type = "常用外漢字の使用"
         corrections.append({
@@ -2287,16 +2281,16 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
             "reason_type": reason_type,
             "check_point": word[1],
             "locations": [],
-            "intgr": False,
+            "intgr": False,  
         })
-    # -------------------
+#-------------------
     if fund_type == 'public':
         # （半角→全角） -0.09% → -0.09％
         pattern_half_width_katakana = r"[ｦ-ﾝ%＠]+"
         half_width_katakana_matches = regcheck.findall(pattern_half_width_katakana, input_text)
 
         for match in half_width_katakana_matches:
-            corrected_text_re = half_and_full_process(match, half_to_full_dict)  # 半角→全角
+            corrected_text_re = half_and_full_process(match,half_to_full_dict)  # 半角→全角
             reason_type = "半角を全角統一"
             original_text = match
             target_text = corrected_text_re
@@ -2313,12 +2307,12 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
                 "intgr": False, 
             })
 
-        # 全角→半角
+        # 半角→全角
         pattern_full_width_numbers_and_letters = r"[０-９Ａ-Ｚ＋－]+"
         full_width_matches = regcheck.findall(pattern_full_width_numbers_and_letters, input_text)
 
         for match in full_width_matches:
-            corrected_text_re = half_and_full_process(match, full_to_half_dict)  # 全角→半角
+            corrected_text_re = half_and_full_process(match,full_to_half_dict)  # 全角→半角
             reason_type = "全角を半角統一"
             original_text = match
             target_text = corrected_text_re
@@ -2341,7 +2335,7 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
 
         for match in full_width_matches_delete:
             corrected_text_re = match
-            reason_type = "削除"
+            reason_type = "删除"
             original_text = match
             target_text = corrected_text_re
 
@@ -2369,8 +2363,8 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
                     if isinstance(item, dict):
                         for original_text, corrected_text_re in item.items():
                             reason_type = "用語の統一"
-                            
-                            if corrected_text_re == "削除":
+                        
+                            if corrected_text_re == "删除":
                                 comment = f"{original_text} → トルは不要"
                             else:
                                 comment = f"{original_text} → {corrected_text_re}"
@@ -2396,15 +2390,15 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
 
                 comment = f"{reason_type} {original_text} → {corrected_text_re}"
 
-                corrections.append({
-                    "page": pageNumber,
-                    "original_text": extract_text(input_text, original_text),# original_text,
-                    "comment": comment,
-                    "reason_type": reason_type,
-                    "check_point": reason_type,
-                    "locations": [],
-                    "intgr": False,  
-                })
+            corrections.append({
+                "page": pageNumber,
+                "original_text": extract_text(input_text, original_text),# original_text,
+                "comment": comment,
+                "reason_type": reason_type,
+                "check_point": reason_type,
+                "locations": [],
+                "intgr": False,  
+            })
 
 # 英略词，only 地政学
     if fund_type == 'private':
@@ -2413,23 +2407,22 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
         for item in results_ruru2:
             for k, v in item.items():
                 original_text = k  # original_text save to AI
-                corrected_text_re = v  # value(v)を corrected_text_re save to AI（人工知能）
+                corrected_text_re = v  # value(v)을 corrected_text_re save to AI（人工知能）
                 reason_type = "用語の統一"
 
                 comment = f"{reason_type} {original_text} → {corrected_text_re}"
 
-                corrections.append({
-                    "page": pageNumber,
-                    "original_text": extract_text(input_text, original_text),# original_text,
-                    "comment": comment,
-                    "reason_type": reason_type,
-                    "check_point": reason_type,
-                    "locations": [],
-                    "intgr": False,
-                })
+            corrections.append({
+                "page": pageNumber,
+                "original_text": extract_text(input_text, original_text),# original_text,
+                "comment": comment,
+                "reason_type": reason_type,
+                "check_point": reason_type,
+                "locations": [],
+                "intgr": False,
+            })
 
-    # -----------------
-
+# -----------------
     if fund_type == 'public':
         word_re = regcheck.findall(r"外国人投資家からの資金流入|外国人投資家の資金流出|加速", input_text)
         for word_result in word_re:
@@ -2515,21 +2508,12 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
                 "reason_type": item.get("分類", "")
             })
 
-    # ----------------------------------------------------------------------
-    # ✅ 2. 句点追加チェック (替换原版本，使用 processed_list)
-    # ----------------------------------------------------------------------
-    for sentence in processed_list: 
-        
-        # ----------- 优化后的安全清理 ----------
-        # 1. 替换制表符为单个空格
-        sentence = sentence.replace('\t', ' ')
-        
-        # 2. 多个连续空格合并为一个，并确保首尾无空格
-        sentence = re.sub(r"\s{2,}", " ", sentence).strip()
-
-        # 3. 避免处理空字符串
-        if not sentence:
-            continue
+    for sentence in input_list:
+        # ----------- 安全清理 ----------
+        # 去除首尾空格、制表符、多余换行
+        sentence = re.sub(r"[\r\n\t]+", " ", sentence).strip()
+        # 多个连续空格合并为一个
+        sentence = re.sub(r"\s{2,}", " ", sentence)
 
         # 「（出所）」がある文はスキップ（既知除外条件）
         if "（出所）" in sentence:
@@ -2551,6 +2535,7 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
                 "page": pageNumber,
                 "reason_type": "句点の追加",
             })
+
     # ==========================================================
     # 主語欠落（例：「〜と示唆した」前に「が」「は」など主語欠如）
     # ==========================================================
