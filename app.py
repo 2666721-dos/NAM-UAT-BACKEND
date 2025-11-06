@@ -1541,80 +1541,6 @@ def check_upload():
                     :param file_bytes: 上传的base64文件
                     :return: 修改完的base64 encoding
                     """
-                    #--------------excel start------------------------------------------
-                    # 🔹 1️⃣ corrected_map init
-                    # corrected_map = fetch_and_convert_to_dict()
-                    # all_text=[]
-
-                    # # 🔹 2️⃣ 临时保存内存里 in-memory zip)
-                    # in_memory_zip = zipfile.ZipFile(io.BytesIO(file_bytes), 'r')
-
-                    # # new ZIP 的 BytesIO
-                    # output_buffer = io.BytesIO()
-                    # new_zip = zipfile.ZipFile(output_buffer, 'w', zipfile.ZIP_DEFLATED, allowZip64=True)
-
-                    # # 🔹 3️⃣ 循环文件             
-                    # for item in in_memory_zip.infolist():
-                    #     file_data = in_memory_zip.read(item.filename)
-                    #     # 🔹 4️⃣ 是否drawingN.xml 检查 (处理文本框)
-                    #     if item.filename.startswith("xl/drawings/drawing") and item.filename.endswith(".xml"):
-                    #         try:
-                    #             tree = ET.fromstring(file_data)
-                    #             ns = {'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'}
-                    #             # 所有的 <a:t> 
-                    #             text_elements = []
-                    #             for t_element in tree.findall(".//a:t", ns):
-                    #                 original_text = t_element.text
-                    #                 if original_text:
-                    #                     parent = t_element.getparent()
-                    #                     if parent is not None:
-                    #                         x = parent.attrib.get('x', 0)
-                    #                         y = parent.attrib.get('y', 0)
-                    #                         text_elements.append((float(y), float(x), original_text.strip()))
-                    #             text_elements.sort(key=lambda item: (item[0], item[1]))
-                    #             for _, _, text in text_elements:
-                    #                 all_text.append(text)
-                    #             file_data = ET.tostring(tree, encoding='utf-8', standalone=False)
-                    #         except Exception as e:
-                    #             print(f"Warning: Parsing {item.filename} failed - {e}")
-
-                    #         try:
-                    #             tree = ET.fromstring(file_data)
-                    #             ns = {'ss': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
-
-                    #             for row in tree.findall(".//ss:Row", ns):
-                    #                 for cell in row.findall("ss:Cell", ns):
-                    #                     value_element = cell.find("ss:Data", ns)
-                    #                     if value_element is not None and value_element.text:
-                    #                         all_text.append(value_element.text.strip())
-
-                    #                     if cell.attrib.get('ss:MergeAcross') is not None:
-                    #                         merged_value = value_element.text.strip() if value_element is not None else ""
-                    #                         for _ in range(int(cell.attrib['ss:MergeAcross'])):
-                    #                             all_text.append(merged_value)
-
-                    #         except Exception as e:
-                    #             print(f"Warning: Parsing {item.filename} failed - {e}")
-                                
-                    #     new_zip.writestr(item, file_data)
-
-                    # # merge all text one string
-                    # combined_text = ''.join(all_text)
-                    
-                    # # 612 debug
-                    # # if file_type != "参照ファイル":
-                    # #     result_map = gpt_correct_text(combined_text)
-                    # #     corrected_map.update(result_map)  # 결과 맵 병합
-                    # # else:
-                    # #     corrected_map = ""
-
-
-                    # in_memory_zip.close()
-                    # new_zip.close()
-
-                    # output_buffer.seek(0)
-                    #--------------excel end------------------------------------------
-                    # excel_base64 = base64.b64encode(output_buffer.getvalue()).decode('utf-8')
                     excel_base64 = base64.b64encode(file_bytes).decode('utf-8')
 
                     return jsonify({
@@ -2334,6 +2260,12 @@ def check_fullwidth_period(sentence):
 # 0623 debug
 def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list):
     corrections = []
+    # ✅ --- 新增：input_list 自动预处理 ---
+    if not input_list or (isinstance(input_list, list) and len(input_list) == 1 and '\n' in str(input_list[0])):
+        # 自动将多行文本拆成句子列表
+        input_list = [s.strip() for s in input_text.split('\n') if s.strip()]
+    elif isinstance(input_list, str):
+        input_list = [s.strip() for s in input_list.split('\n') if s.strip()]
 
 #-------------------
     #常用外汉字
@@ -2374,29 +2306,6 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
                 "locations": [],
                 "intgr": False, 
             })
-
-        # # （半角括弧 → 全角括弧） -() → () ,with date format: \((?!\d{4}年\d{1,2}月\d{1,2}日)([^)]+)\)
-        # pattern_half_width_kuohao = r"\(([^)]+)\)"
-        # half_width_kuohao_matches = regcheck.findall(pattern_half_width_kuohao, input_text)
-
-        # for match in half_width_kuohao_matches:
-        #     corrected_text_re = half_and_full_process(match,half_to_full_dict)  # 半角→全角
-        #     reason_type = "半角括弧を全角括弧に統一"
-        #     original_text = match
-        #     converted = corrected_text_re
-        #     target_text = re.sub(r'\(([^)]+)\)', r'（\1）', converted)
-        #     # ()表記の統一(分配金再投資)） -(分配金再投資) → （分配金再投資）
-        #     comment = f"{reason_type} {original_text} → {target_text}"
-
-        #     corrections.append({
-        #         "page": pageNumber,
-        #         "original_text": original_text,#corrected_text_re
-        #         "comment": comment,
-        #         "reason_type": reason_type,
-        #         "check_point": input_text.strip(),
-        #         "locations": [],
-        #         "intgr": False, 
-        #     })
 
         # 半角→全角
         pattern_full_width_numbers_and_letters = r"[０-９Ａ-Ｚ＋－]+"
@@ -2660,15 +2569,7 @@ def find_corrections_wording(input_text,pageNumber,tenbrend,fund_type,input_list
 
     return corrections
 
-# def extract_text(input_text, original_text):
-#     pattern = rf"{original_text}（[^）]*）|{original_text}"
 
-#     match = regcheck.search(pattern, input_text)
-    
-#     if match:
-#         return match.group(0)
-#     else:
-#         return None
 
 def extract_text(input_text, original_text):
     """
@@ -2678,21 +2579,6 @@ def extract_text(input_text, original_text):
     """
     if not original_text:
         return None
-
-    # 送り仮名欠落系列关键词
-    # okuri_targets = ["行う", "行い", "行って", "行った", "行われ", "行われる", "行わない"]
-
-    # # === 针对送り仮名系列，放宽匹配条件 ===
-    # if any(word in original_text for word in okuri_targets):
-    #     safe_text = regcheck.escape(original_text)
-    #     # 允许：后面带（全角括号内容）或空格
-    #     pattern = rf"{safe_text}(（[^）]*）)?[ 　]?"
-    #     match = regcheck.search(pattern, input_text)
-    #     if match:
-    #         return match.group(0)
-    #     else:
-    #         # fallback：匹配不到也返回原词，以避免 original_text 为 None
-    #         return original_text
 
     # === 其他情况维持原逻辑 ===
     pattern = rf"{original_text}（[^）]*）|{original_text}"
@@ -2734,11 +2620,6 @@ def extract_parts_with_direction(text: str, focus: str = None):
                 segments.extend(matches)
         else:
             segments.extend(matches)
-
-        # 上下方向
-        # direction_match = re.findall(r'(上回りました|下回りました)', part)
-        # segments.extend(direction_match)
-
     return segments
 
 def extract_corrections(corrected_text, input_text,pageNumber):
@@ -3327,14 +3208,6 @@ def write_upload_save():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-def apply_manual_corrections(text, correction_map):
-    if text in correction_map:
-        result = correction_map[text]
-    # for old_text, new_text in correction_map.items():
-    #     if old_text in text:
-    #         text = text.replace(old_text, new_text)
-    return result
-
 def correct_text_box_in_excel(input_bytes,corrected_map):
     # 1)  in-memory zip
     in_memory_zip = zipfile.ZipFile(io.BytesIO(input_bytes), 'r')
@@ -3571,16 +3444,6 @@ def integeration_ruru_cosmos():
             container.upsert_item(item)
             logging.info("✅ Data inserted into Cosmos DB successfully.")
             return jsonify({"success": True, "message": "Data inserted successfully."}), 200
-
-        # if items:
-        #     item["id"] = items[0]["id"]
-        #     container.replace_item(item=items[0], body=item)
-        #     logging.info("✅ Data updated in Cosmos DB successfully.")
-        #     return jsonify({"success": True, "message": "Data updated successfully."}), 200
-        # else:
-        #     container.create_item(body=item)
-        #     logging.info("✅ Data inserted into Cosmos DB successfully.")
-        #     return jsonify({"success": True, "message": "Data inserted successfully."}), 200
 
     except Exception as e:
         logging.error(f"❌ Cosmos DB save error: {e}")
@@ -6159,7 +6022,7 @@ def openai_with_global_lock(
             if lock_doc['status'] == 'busy':
                 timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=PROCESSING_TIMEOUT_MINUTES)
                 locked_at_time = datetime.fromisoformat(lock_doc['locked_at'])
-                
+                time.sleep(120) # 等待一段时间，避免频繁检查锁状态
                 if locked_at_time < timeout_threshold:
                     print("检测到全局锁超时，强制释放...")
                     lock_doc['status'] = 'available'
