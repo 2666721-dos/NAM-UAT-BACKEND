@@ -4439,6 +4439,7 @@ def ruru_ask_gpt():
                 "ただし、出力文では、Referenceに指定された内部的な列名（例：「1ヶ月」「3ヶ月」「6ヶ月」「1年」など）は、そのまま引用せず、実際の年月や期間を示す自然な表現（例：「当月実際データ」など）に置き換えて説明してください。",
                 "この置換はReferenceの指示違反にはなりません。",
 
+
                 "【絶対値比較ルール（Reference優先適用）】",
                 "Reference に「プラスやマイナスは関係なく」「絶対値」「同程度」などの語が含まれる場合、Result 内の数値比較は絶対値を用いて行ってください。",
                 "この場合、符号の違い（プラス／マイナス）は完全に無視し、絶対値の差が Reference で定義された許容範囲（例：10％以内）に収まるかどうかのみを基準に判断してください。",
@@ -5276,37 +5277,37 @@ def loop_in_ruru(input):
                 }
             ]
         },
-        {
-        "category": "数値記号の統一(Numeric Sign Consistency)",
-        "rule_id": "1.2",
-        "description": "収益率・騰落率などにおいて、正の数値には明示的に「+」を付与して統一性を保つ。既に「+」「−」が付いているものや、比較的表現で増減が示されている場合は変更しない。",
-        "requirements": [
-            {
-            "condition": "収益率、騰落率などで、正の数値に符号(+)が付いていない場合",
-            "correction": "符号(+)を付与する (例：4.04％ → +4.04％)"
-            },
-            {
-            "condition": "すでに「+」や「−」が付いている数値",
-            "correction": "変更しない"
-            },
-            {
-            "condition": "『下回った』『上回った』『減少』『増加』など、文脈で増減が明示されている場合",
-            "correction": "符号は付けない（文脈により方向が明示されているため）"
-            }
-        ],
-        "output_format": "'original': 'Incorrect text', 'correct': 'Corrected text', 'reason': '「＋」「−」の明示的統一'",
-        "Examples": [
-            {
-            "input": "○月間の基準価額の騰落率は4.04％",
-            "output": "'original': '4.04％', 'correct': '+4.04％', 'reason': '「＋」「−」の明示的統一'"
-            },
-            {
-            "input": "インフレ率は0.05ポイント下回っている",
-            "output": "変更しない"
-            }
-        ],
-        "notes": "対象数値は一般的に％ or ポイント が後ろに付く収益や成長値などに限定。整数・小数とも対象(例：5％、0.00％、1.234ポイントなど)。ただし「下回っている」「上回っている」「増加」「減少」など文脈的に方向が明示されている場合は記号不要。文章内に複数該当がある場合もすべて個別に対応する。"
-        },
+        # {
+        # "category": "数値記号の統一(Numeric Sign Consistency)",
+        # "rule_id": "1.2",
+        # "description": "収益率・騰落率などにおいて、正の数値には明示的に「+」を付与して統一性を保つ。既に「+」「−」が付いているものや、比較的表現で増減が示されている場合は変更しない。",
+        # "requirements": [
+        #     {
+        #     "condition": "収益率、騰落率などで、正の数値に符号(+)が付いていない場合",
+        #     "correction": "符号(+)を付与する (例：4.04％ → +4.04％)"
+        #     },
+        #     {
+        #     "condition": "すでに「+」や「−」が付いている数値",
+        #     "correction": "変更しない"
+        #     },
+        #     {
+        #     "condition": "『下回った』『上回った』『減少』『増加』など、文脈で増減が明示されている場合",
+        #     "correction": "符号は付けない（文脈により方向が明示されているため）"
+        #     }
+        # ],
+        # "output_format": "'original': 'Incorrect text', 'correct': 'Corrected text', 'reason': '「＋」「−」の明示的統一'",
+        # "Examples": [
+        #     {
+        #     "input": "○月間の基準価額の騰落率は4.04％",
+        #     "output": "'original': '4.04％', 'correct': '+4.04％', 'reason': '「＋」「−」の明示的統一'"
+        #     },
+        #     {
+        #     "input": "インフレ率は0.05ポイント下回っている",
+        #     "output": "変更しない"
+        #     }
+        # ],
+        # "notes": "対象数値は一般的に％ or ポイント が後ろに付く収益や成長値などに限定。整数・小数とも対象(例：5％、0.00％、1.234ポイントなど)。ただし「下回っている」「上回っている」「増加」「減少」など文脈的に方向が明示されている場合は記号不要。文章内に複数該当がある場合もすべて個別に対応する。"
+        # },
         {
         "category": "表現ルール：『大手』の語順と企業名の一般化",
         "rule_id": "CorrectOoteOrder_And_GeneralizeCompanyNames",
@@ -5615,6 +5616,61 @@ def loop_in_ruru(input):
         """
         yield result
 
+# =========================================
+# rule_id "1.2" 数値記号の統一 (正则实现)
+# =========================================
+def numeric_sign_consistency(text: str, pageNumber: int):
+    """
+    数値符号統一ルール (rule_id: 1.2)
+    「収益率」「騰落率」等の記載で、正の数値に明示的な「+」が付いていない場合を検出し修正を提案する。
+    返回结构满足 add_comments_to_pdf / opt_common 的统一字段结构。
+    """
+    key_work_skip = [
+        "増加","上昇","上回","伸び","拡大","改善","プラスに転","増益","増収","回復","急騰","上振","改良",
+        "減少","低下","下回","下落","悪化","マイナスに転","減益","減収","縮小","鈍化","悪影響","下振","悪転"
+    ]
+
+    # 仅当文本出现“収益率 或 騰落率”时才判定
+    if not any(k in text for k in ["収益率", "騰落率"]):
+        return []
+
+    # 命中 skip 关键词 → 直接跳过
+    if any(k in text for k in key_work_skip):
+        return []
+
+    # 匹配百分数（带全/半角%与＋−）
+    percent_pattern = r'([＋\+\−\-]?\s*\d+(?:\.\d+)?\s*[％%])'
+    matches = list(re.finditer(percent_pattern, text))
+    if not matches:
+        return []  # 没有百分数，不适用
+
+    pre_corrections = []
+    for m in matches:
+        token = m.group(0)
+        compact = token.replace(" ", "")
+        # 已有显式符号(+ / −) → 跳过
+        if re.match(r'^[\+\＋\-\−]', compact):
+            continue
+
+        _original_text = token
+        data = {
+            "original": token,
+            "correct": f"+{token}",
+            "reason": "「＋」「−」の明示的統一"
+        }
+
+        pre_corrections.append({
+            "page": pageNumber,
+            "original_text": _original_text,
+            "comment": f'{_original_text} → {data["correct"]}',
+            "reason_type": data["reason"],
+            "check_point": _original_text,
+            "locations": [],
+            "intgr": False
+        })
+
+    return pre_corrections
+
 @app.route('/api/opt_wording', methods=['POST'])
 def opt_wording():
     try:
@@ -5624,28 +5680,30 @@ def opt_wording():
         
         data = request.json
 
-        def convert_fullwidth_to_halfwidth(text):
-            return text.replace('（', '(').replace('）', ')')
-        
-        # input = data.get("input", "")
-        input = convert_fullwidth_to_halfwidth(data.get("input", ""))
+        def convert_fullwidth_to_halfwidth(s: str) -> str:
+            return s.replace('（', '(').replace('）', ')')
+
+        input_raw = convert_fullwidth_to_halfwidth(data.get("input", ""))
+        if not input_raw:
+            return jsonify({"success": False, "error": "No input provided"}), 400
 
         pdf_base64 = data.get("pdf_bytes", "")
-
-        fund_type = data.get("fund_type", "public")  #  'public'
+        fund_type = data.get("fund_type", "public")
         file_name_decoding = data.get("file_name", "")
         icon = data.get("icon", "")
         comment_type = data.get("comment_type", "")
         upload_type = data.get("upload_type", "")
-        pageNumber = data.get('pageNumber',0)
-        
-        # URL Decoding
+        pageNumber = data.get('pageNumber', 0)
+
+        # URL 解码文件名
         file_name = urllib.parse.unquote(file_name_decoding)
 
-        if not input:
-            return jsonify({"success": False, "error": "No input provided"}), 400
 
-        prompt_result = loop_in_ruru("\"" + input.replace('\n', '') + "\"")
+        pre_corrections = numeric_sign_consistency(input_raw, pageNumber)
+
+
+        prompt_result = loop_in_ruru("\"" + input_raw.replace('\n', '') + "\"")
+
         async def run_tasks():
             tasks = [handle_result(once) for once in prompt_result]
             return await asyncio.gather(*tasks)
@@ -5660,12 +5718,20 @@ def opt_wording():
             "- [{'original': '[原文中の誤っている部分:]', 'correct': '[誤り部分を正しい部分のテキストに修正:]', 'reason': '[理由:]'}]",
             "- 分析結果が正しい場合は、空のリストを返します",
             "- 同じ入力には常に**同じJSON形式の出力**を返してください（推論の揺れを避けてください）。",
-            f"原文:'{input}'\n分析結果:'{sec_input}'"
+            f"原文:'{input_raw}'\n分析結果:'{sec_input}'"
         ]
         sec_prompt = "\n".join(dt)
 
-        _content = opt_common(input,sec_prompt,pdf_base64,pageNumber,False,False,False,False,False)
-        
+        # ✅ 将 pre_corrections 传给 opt_common
+        _content = opt_common(
+            input_raw,
+            sec_prompt,
+            pdf_base64,
+            pageNumber,
+            False, False, False, False, False,
+            pre_corrections=pre_corrections
+        )
+
         return _content
 
     except Exception as e:
