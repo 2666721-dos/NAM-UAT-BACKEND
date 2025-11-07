@@ -2538,7 +2538,7 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
         if "市場環境" in sentence:
             continue
         sentence_split = re.sub(r"\s+$", "", sentence)[-30:]
-        if re.search(r"ました(?!。)", sentence):
+        if re.search(r"ました(?!。)(?=[\s　、，。\n]|$)", sentence):
             corrections.append({
                 "check_point": "句点の追加",
                 "comment": f"{sentence_split} → {sentence_split}。",
