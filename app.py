@@ -5747,8 +5747,8 @@ def get_words(converted_data, fund_type):
         if re.search(r"現在|詳しくは、|（運用実績、分配金は、|4月のJ-|あります）。|当ファンド|この報告書は、ファンドの運用状|）。|パフォーマンス動向は|当月の投資配分|買い建てし|買い付けしなどをした|贅沢品株の買|などの", afterChange):
             continue
         # 1019 新增过滤规则：如果原文以「す。」「た。」「は、」开头则跳过
-        if re.match(r"^(す。|た。|は、|と、|で、|も、|え、|お、|り、|に、|また、)", beforeChange):
-            continue
+        # if re.match(r"^(す。|た。|は、|と、|で、|も、|え、|お、|り、|に、|また、)", beforeChange):
+        #     continue
         # 827 fix
         if afterChange == "。" and beforeChange == "":
             continue
