@@ -5718,10 +5718,10 @@ def opt_wording():
         # URL 解码文件名
         file_name = urllib.parse.unquote(file_name_decoding)
 
-
+        # 数値符号統一（＋／− の明示）
         pre_corrections = numeric_sign_consistency(input_raw, pageNumber)
 
-
+        # RURU ルール生成
         prompt_result = loop_in_ruru("\"" + input_raw.replace('\n', '') + "\"")
 
         async def run_tasks():
@@ -5731,6 +5731,7 @@ def opt_wording():
         results = asyncio.run(run_tasks())
         sec_input = "\n".join(results)
 
+        # 二次プロンプト作成
         dt = [
             "以下の分析結果に基づき、原文中の誤りを抽出してください",
             "- 出力結果は毎回同じにしてください（**同じ入力に対して結果が変動しないように**してください）。",
@@ -5742,7 +5743,7 @@ def opt_wording():
         ]
         sec_prompt = "\n".join(dt)
 
-        # ✅ 将 pre_corrections 传给 opt_common
+        # ✅ 调用 GPT + 合并规则
         _content = opt_common(
             input_raw,
             sec_prompt,
@@ -5752,6 +5753,42 @@ def opt_wording():
             pre_corrections=pre_corrections
         )
 
+        # ✅ ✂️ 过滤句点相关修正（适配 Flask Response）
+        try:
+            # 判断是否是 Flask Response
+            if hasattr(_content, "get_json"):
+                data_json = _content.get_json()
+            elif isinstance(_content, dict):
+                data_json = _content
+            else:
+                data_json = {}
+
+            if isinstance(data_json, dict):
+                punctuation_filter_pattern = r"(句点|文の区切り|句点がなく|文が不自然に連続している)"
+
+                if "corrections" in data_json and isinstance(data_json["corrections"], list):
+                    before = len(data_json["corrections"])
+                    data_json["corrections"] = [
+                        c for c in data_json["corrections"]
+                        if not re.search(punctuation_filter_pattern, c.get("reason_type", ""))
+                        and not re.search(punctuation_filter_pattern, c.get("reason", ""))
+                    ]
+                    after = len(data_json["corrections"])
+                    if after < before:
+                        print(f"✂️ Removed {before - after} punctuation-related corrections.")
+
+                if "parsed_data" in data_json and isinstance(data_json["parsed_data"], list):
+                    data_json["parsed_data"] = [
+                        p for p in data_json["parsed_data"]
+                        if not re.search(punctuation_filter_pattern, p.get("reason", ""))
+                    ]
+
+                # 将过滤后的内容重新 jsonify
+                return jsonify(data_json)
+        except Exception as filter_err:
+            print(f"⚠️ Filter stage error: {filter_err}")
+
+        # 如果不是 Response 或过滤异常，原样返回
         return _content
 
     except Exception as e:
