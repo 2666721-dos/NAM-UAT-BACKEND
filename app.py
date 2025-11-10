@@ -4439,7 +4439,6 @@ def ruru_ask_gpt():
                 "ただし、出力文では、Referenceに指定された内部的な列名（例：「1ヶ月」「3ヶ月」「6ヶ月」「1年」など）は、そのまま引用せず、実際の年月や期間を示す自然な表現（例：「当月実際データ」など）に置き換えて説明してください。",
                 "この置換はReferenceの指示違反にはなりません。",
 
-
                 "【絶対値比較ルール（Reference優先適用）】",
                 "Reference に「プラスやマイナスは関係なく」「絶対値」「同程度」などの語が含まれる場合、Result 内の数値比較は絶対値を用いて行ってください。",
                 "この場合、符号の違い（プラス／マイナス）は完全に無視し、絶対値の差が Reference で定義された許容範囲（例：10％以内）に収まるかどうかのみを基準に判断してください。",
@@ -5092,7 +5091,10 @@ def get_prompt(corrected):
         - ❗ **Do not check or modify expressions related to 「行う」「行なう」 and their conjugations (行い・行って・行なって・行われ・行なわれる・行わない etc.) — skip all okurigana variations for this verb family.**
         - Detect expressions where omitted repeated phrases (e.g., "の上昇", "の低下") may cause ambiguity between multiple items, and suggest repeating the term explicitly for each item to ensure clarity.
         - Do not modify expressions that are grammatically valid and commonly accepted in Japanese, even if alternative phrasing may seem more natural. For example, do not rewrite "中国、米国など" as "中国や米国など" unless required. However, grammatically incorrect forms like "中国、米国など国" must be corrected to "中国、米国などの国".
-        
+        - 🚫 **When a sentence-ending verb (e.g., 「〜しました」「〜でした」「〜となりました」「〜されています」「〜いたしました」) is immediately followed by another phrase such as 「以下のように」「その結果」「そのため」「しかし」「一方」 etc., this is treated only as missing punctuation.**
+        - ✅ **In such cases, output the reason as 「句点の追加」, not as 「文の区切りの誤り（句点が必要）」**. 
+        - Do NOT interpret this as a grammatical or structural error.
+
         **missing Example*：
         {example_0}  ”と”を脱字しました
         {example_1}  The kanji '剤' was incorrectly used instead of '済', resulting in a wrong word formation.
@@ -5134,7 +5136,6 @@ def get_prompt(corrected):
     ]
 
     for target_prompt in prompt_list:
-        # 助詞チェックなどには補足ルールを追加
         if "助詞の省略" in target_prompt:
             special_word = "- **動詞の連用形や文中の接続助詞前の活用形は正しい表現として認め、文末形などへの変更を求めないこと。**"
         else:
@@ -5172,6 +5173,7 @@ def get_prompt(corrected):
 
         """
         yield common_result
+
 
 
 
