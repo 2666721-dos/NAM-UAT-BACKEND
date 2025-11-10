@@ -4997,6 +4997,7 @@ def opt_typo():
         for pat in skip_patterns:
             masked_input = re.sub(pat, f"<OKURIGANA_SKIP_{pat}>", masked_input)
 
+        # ③ 调用 GPT 提示词（已在 get_prompt 内加入禁用“文の区切りの誤り”提示）
         prompt_result = get_prompt("\"" + masked_input.replace('\n', '') + "\"")
 
         async def run_tasks():
@@ -5006,7 +5007,7 @@ def opt_typo():
         results = asyncio.run(run_tasks())
         sec_input = "\n".join(results)
 
-        # 用“掩码版输入”生成 sec_prompt，确保 GPT 永远看不到原文的行/行な系列
+        # ④ 构造 sec_prompt —— 在指令中再次明确禁止「文の区切りの誤り」「句点の追加」
         dt = [
             "以下の分析結果に基づき、原文中の誤りを抽出してください。",
             "- 出力結果は毎回同じにしてください（**同じ入力に対して結果が変動しないように**してください）。",
@@ -5014,6 +5015,8 @@ def opt_typo():
             "- 1単語またはごく短いフレーズ単位でoriginalを抽出してください。",
             "- originalはreason_typeの説明に該当する部分のみを抽出してください（例：『など』の後には助詞『の』が必要）。",
             "- 同じ入力には常に**同じJSON形式の出力**を返してください（推論の揺れを避けてください）。",
+            "- 🚫 **「文の区切りの誤り」「句点の追加」などの句読点関連の修正は一切行わないでください。**",
+            "- 🚫 **句点が欠けていても指摘対象外とします。**",
             "出力は以下のJSON形式でお願いします:",
             "- [{'original': '[原文中の誤っている最小単位の部分]', 'correct': '[正しいテキスト]', 'reason': '[理由:]'}]",
             "- 分析結果に修正部分がある場合は、必ず空のリストを返さないでください。",
@@ -5032,20 +5035,32 @@ def opt_typo():
         ]
         sec_prompt = "\n".join(dt)
 
-        # 本地规则
+        # ⑤ 本地规则匹配
         re_list = regcheck.findall(r"(\d{4,})[人種万円兆億]", original_input)
         rule_list = regcheck.findall(r"当月投資配分", original_input)
         rule1_list = regcheck.findall(r"【(先月の投資環境|先月の運用経過|今後の運用方針)】", original_input)
         rule3_list = regcheck.findall(r"-[\d.％]{4,6}下落", original_input)
         symbol_list = regcheck.findall(r"され、下落し", original_input)
 
-        # ③ 把 pre_corrections 交给 opt_common；opt_common 用原文 original_input 做定位
+        # ⑥ 调用 opt_common（传入 pre_corrections）
         _content = opt_common(
             original_input, sec_prompt, pdf_base64, pageNumber,
             re_list, rule_list, rule1_list, rule3_list, symbol_list,
             pre_corrections=pre_corrections
         )
-        return _content
+
+        # ⑦ 后处理：删除任何 "句点の追加" 或 "文の区切りの誤り" 的修正项
+        try:
+            data = json.loads(_content.get_json()["corrections"]) if hasattr(_content, "get_json") else _content.get("corrections", [])
+            filtered = [
+                c for c in data
+                if not re.search(r"(句点の追加|文の区切りの誤り)", c.get("reason", ""))
+            ]
+            if len(filtered) != len(data):
+                print(f"⚠️ Removed {len(data) - len(filtered)} punctuation-related corrections.")
+            return jsonify({"success": True, "corrections": filtered})
+        except Exception:
+            return _content
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
