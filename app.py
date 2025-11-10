@@ -5297,37 +5297,6 @@ def loop_in_ruru(input):
                 }
             ]
         },
-        # {
-        # "category": "数値記号の統一(Numeric Sign Consistency)",
-        # "rule_id": "1.2",
-        # "description": "収益率・騰落率などにおいて、正の数値には明示的に「+」を付与して統一性を保つ。既に「+」「−」が付いているものや、比較的表現で増減が示されている場合は変更しない。",
-        # "requirements": [
-        #     {
-        #     "condition": "収益率、騰落率などで、正の数値に符号(+)が付いていない場合",
-        #     "correction": "符号(+)を付与する (例：4.04％ → +4.04％)"
-        #     },
-        #     {
-        #     "condition": "すでに「+」や「−」が付いている数値",
-        #     "correction": "変更しない"
-        #     },
-        #     {
-        #     "condition": "『下回った』『上回った』『減少』『増加』など、文脈で増減が明示されている場合",
-        #     "correction": "符号は付けない（文脈により方向が明示されているため）"
-        #     }
-        # ],
-        # "output_format": "'original': 'Incorrect text', 'correct': 'Corrected text', 'reason': '「＋」「−」の明示的統一'",
-        # "Examples": [
-        #     {
-        #     "input": "○月間の基準価額の騰落率は4.04％",
-        #     "output": "'original': '4.04％', 'correct': '+4.04％', 'reason': '「＋」「−」の明示的統一'"
-        #     },
-        #     {
-        #     "input": "インフレ率は0.05ポイント下回っている",
-        #     "output": "変更しない"
-        #     }
-        # ],
-        # "notes": "対象数値は一般的に％ or ポイント が後ろに付く収益や成長値などに限定。整数・小数とも対象(例：5％、0.00％、1.234ポイントなど)。ただし「下回っている」「上回っている」「増加」「減少」など文脈的に方向が明示されている場合は記号不要。文章内に複数該当がある場合もすべて個別に対応する。"
-        # },
         {
         "category": "表現ルール：『大手』の語順と企業名の一般化",
         "rule_id": "CorrectOoteOrder_And_GeneralizeCompanyNames",
@@ -5567,7 +5536,7 @@ def loop_in_ruru(input):
         {
         "category": "GrammarCorrection",
         "rule_id": "3.1",
-        "description": "Ensure sentences are grammatically correct and avoid double subjects or incomplete predicates.",
+        "description": "Ensure sentences are grammatically correct and avoid double subjects or incomplete predicates.（※文末に句点がなく文が不自然に連続しているケースの検出は除外済み）",
         "requirements": [
             {
             "condition": "Avoid double subject constructions (e.g., 主語が二重).",
@@ -5576,6 +5545,11 @@ def loop_in_ruru(input):
             {
             "condition": "Avoid breaking sentences unnaturally with 'など'.",
             "correction": "Ensure the sentence has a complete predicate."
+            },
+            # 🚫 以下逻辑移除：文末句点缺落・文連続性チェック（已由他API处理）
+            {
+            "condition": "文末に句点がなく、文が不自然に連続しているため文を区切る必要がある場合",
+            "correction": "句点チェックは別APIで実施するため、このルールでは除外"
             }
         ],
         "output_format": "'original': 'Incorrect text', 'correct': 'Corrected text', 'reason': 'Reason text'",
@@ -5588,6 +5562,7 @@ def loop_in_ruru(input):
                 "reason": "二重主語を避けるため、正しい助詞『を』を使用"
             }
             }
+            # ※文末句点関連の例は削除済み
         ]
         }
     ]
