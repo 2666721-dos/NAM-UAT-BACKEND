@@ -5624,52 +5624,77 @@ def loop_in_ruru(input):
 def numeric_sign_consistency(text: str, pageNumber: int):
     """
     数値符号統一ルール (rule_id: 1.2)
-    「収益率」「騰落率」等の記載で、正の数値に明示的な「+」が付いていない場合を検出し修正を提案する。
-    返回结构满足 add_comments_to_pdf / opt_common 的统一字段结构。
+    功能说明：
+        - 仅当句子中出现“収益率”或“騰落率”时才进行符号一致性检查。
+        - 若句中包含“上昇”、“下落”、“改善”、“悪化”等变化描述词，则跳过。
+        - 若句中出现百分号（％/%），且前面没有明确“＋/−”符号（全角/半角均可），
+          则提出修正建议「＋」「−」の明示的統一。
+    
+    参数：
+        text (str): 原始文本（可能包含多句）
+        pageNumber (int): 当前页码，用于返回结构
+    
+    返回：
+        list[dict]: 满足 add_comments_to_pdf / opt_common 结构的修正规则列表
     """
+
+    # === ① 定义跳过的关键词（包含这些词的句子不进行检查）===
     key_work_skip = [
-        "増加","上昇","上回","伸び","拡大","改善","プラスに転","増益","増収","回復","急騰","上振","改良",
-        "減少","低下","下回","下落","悪化","マイナスに転","減益","減収","縮小","鈍化","悪影響","下振","悪転"
+        "増加", "上昇", "上回", "伸び", "拡大", "改善", "プラスに転", "増益", "増収", "回復", "急騰", "上振", "改良",
+        "減少", "低下", "下回", "下落", "悪化", "マイナスに転", "減益", "減収", "縮小", "鈍化", "悪影響", "下振", "悪転"
     ]
 
-    # 仅当文本出现“収益率 或 騰落率”时才判定
-    if not any(k in text for k in ["収益率", "騰落率"]):
-        return []
-
-    # 命中 skip 关键词 → 直接跳过
-    if any(k in text for k in key_work_skip):
-        return []
-
-    # 匹配百分数（带全/半角%与＋−）
+    # === ② 定义匹配百分数的正则模式（支持全角/半角＋−，支持小数）===
     percent_pattern = r'([＋\+\−\-]?\s*\d+(?:\.\d+)?\s*[％%])'
-    matches = list(re.finditer(percent_pattern, text))
-    if not matches:
-        return []  # 没有百分数，不适用
+
+    # === ③ 改进的日文句末识别规则 ===
+    # 匹配日文的常见句末符号（句号、问号、感叹号、加引号情况）
+    # 支持组合如：「。」、『。』、「！」、『？』 等
+    # 说明：
+    #   (?<=[。．！？\?！]) 匹配这些符号作为分句点
+    #   (?:[」』」])? 可选匹配结尾引号
+    #   \s* 表示后接任意空格或换行
+    sentence_pattern = r'(?<=[。．！？\?！])[」』」]?\s*'
+
+    # === ④ 按句末符号分割成句 ===
+    sentences = re.split(sentence_pattern, text)
 
     pre_corrections = []
-    for m in matches:
-        token = m.group(0)
-        compact = token.replace(" ", "")
-        # 已有显式符号(+ / −) → 跳过
-        if re.match(r'^[\+\＋\-\−]', compact):
+
+    # === ⑤ 对每一句进行判定 ===
+    for sentence in sentences:
+        s = sentence.strip()
+        if not s:
+            continue  # 空行或空句跳过
+
+        # Step 1️⃣：句子必须包含“収益率”或“騰落率”，否则直接跳过
+        if not re.search(r'(収益率|騰落率)', s):
             continue
 
-        _original_text = token
-        data = {
-            "original": token,
-            "correct": f"+{token}",
-            "reason": "「＋」「−」の明示的統一"
-        }
+        # Step 2️⃣：若句子包含 skip 关键词（上昇/下落/改善等）→ 跳过
+        if any(word in s for word in key_work_skip):
+            continue
 
-        pre_corrections.append({
-            "page": pageNumber,
-            "original_text": _original_text,
-            "comment": f'{_original_text} → {data["correct"]}',
-            "reason_type": data["reason"],
-            "check_point": _original_text,
-            "locations": [],
-            "intgr": False
-        })
+        # Step 3️⃣：提取句子中所有百分数（％/%）
+        for m in re.finditer(percent_pattern, s):
+            token = m.group(0)
+            compact = token.replace(" ", "")  # 去除中间空格
+
+            # Step 4️⃣：若百分数已带有符号（+/- 全角/半角）→ 跳过
+            if re.match(r'^[\+\＋\-\−]', compact):
+                continue
+
+            # Step 5️⃣：没有符号的百分数 → 输出修正建议
+            _original_text = token
+            pre_corrections.append({
+                "page": pageNumber,
+                "original_text": _original_text,
+                "comment": f'{_original_text} → +{_original_text}',
+                "reason_type": "「＋」「−」の明示的統一",
+                "check_point": _original_text,
+                "locations": [],
+                "intgr": False
+            })
 
     return pre_corrections
 
