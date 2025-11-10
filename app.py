@@ -2537,23 +2537,8 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
             continue
         if "市場環境" in sentence:
             continue
-        sentence_split = re.sub(r"\s+$", "", sentence)[-30:]
-        if re.search(r"ました(?!。)(?=[\s　、，。\n]|$)", sentence):
-            corrections.append({
-                "check_point": "句点の追加",
-                "comment": f"{sentence_split} → {sentence_split}。",
-                "intgr": False,
-                "locations": [],
-                "original_text": sentence_split,
-                "page": pageNumber,
-                "reason_type": "句点の追加",
-            })
-
-        # ----------- 句点追加チェック ----------
-        # 如果句尾没有 "。"（全角句点），则追加建议
-        # if not check_fullwidth_period(sentence):
-        #     # 取句尾30字符便于人工确认
-        #     sentence_split = re.sub(r"\s+$", "", sentence)[-30:]
+        # sentence_split = re.sub(r"\s+$", "", sentence)[-30:]
+        # if re.search(r"ました(?!。)(?=[\s　、，。\n]|$)", sentence):
         #     corrections.append({
         #         "check_point": "句点の追加",
         #         "comment": f"{sentence_split} → {sentence_split}。",
@@ -2563,6 +2548,21 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
         #         "page": pageNumber,
         #         "reason_type": "句点の追加",
         #     })
+
+        # ----------- 句点追加チェック ----------
+        # 如果句尾没有 "。"（全角句点），则追加建议
+        if not check_fullwidth_period(sentence):
+            # 取句尾30字符便于人工确认
+            sentence_split = re.sub(r"\s+$", "", sentence)[-130:]
+            corrections.append({
+                "check_point": "句点の追加",
+                "comment": f"{sentence_split} → {sentence_split}。",
+                "intgr": False,
+                "locations": [],
+                "original_text": sentence_split,
+                "page": pageNumber,
+                "reason_type": "句点の追加",
+            })
 
     # ==========================================================
     # 主語欠落（例：「〜と示唆した」前に「が」「は」など主語欠如）
