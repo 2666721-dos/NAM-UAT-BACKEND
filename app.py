@@ -2540,17 +2540,7 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
             continue
         if re.fullmatch(r"[＜【].+?[＞】]", sentence.strip()):
             continue
-        # sentence_split = re.sub(r"\s+$", "", sentence)[-30:]
-        # if re.search(r"ました(?!。)(?=[\s　、，。\n]|$)", sentence):
-        #     corrections.append({
-        #         "check_point": "句点の追加",
-        #         "comment": f"{sentence_split} → {sentence_split}。",
-        #         "intgr": False,
-        #         "locations": [],
-        #         "original_text": sentence_split,
-        #         "page": pageNumber,
-        #         "reason_type": "句点の追加",
-        #     })
+       
 
         # ----------- 句点追加チェック ----------
         # 如果句尾没有 "。"（全角句点），则追加建议
@@ -2566,7 +2556,6 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
                 "page": pageNumber,
                 "reason_type": "句点の追加",
             })
-
     # ==========================================================
     # 主語欠落（例：「〜と示唆した」前に「が」「は」など主語欠如）
     # ==========================================================
@@ -4442,6 +4431,7 @@ def ruru_ask_gpt():
                 "ただし、出力文では、Referenceに指定された内部的な列名（例：「1ヶ月」「3ヶ月」「6ヶ月」「1年」など）は、そのまま引用せず、実際の年月や期間を示す自然な表現（例：「当月実際データ」など）に置き換えて説明してください。",
                 "この置換はReferenceの指示違反にはなりません。",
 
+
                 "【絶対値比較ルール（Reference優先適用）】",
                 "Reference に「プラスやマイナスは関係なく」「絶対値」「同程度」などの語が含まれる場合、Result 内の数値比較は絶対値を用いて行ってください。",
                 "この場合、符号の違い（プラス／マイナス）は完全に無視し、絶対値の差が Reference で定義された許容範囲（例：10％以内）に収まるかどうかのみを基準に判断してください。",
@@ -5156,6 +5146,7 @@ def get_prompt(corrected):
     ]
 
     for target_prompt in prompt_list:
+        # 助詞チェックなどには補足ルールを追加
         if "助詞の省略" in target_prompt:
             special_word = "- **動詞の連用形や文中の接続助詞前の活用形は正しい表現として認め、文末形などへの変更を求めないこと。**"
         else:
@@ -5193,7 +5184,6 @@ def get_prompt(corrected):
 
         """
         yield common_result
-
 
 
 
@@ -5925,7 +5915,8 @@ def get_words(converted_data, fund_type):
         #---0901,fix the error disable
         if "不自然な空白" in data["reason_type"] and fund_type == "public":
             continue
-        
+        if "異常な色" in data["reason_type"] and fund_type == "private" and beforeChange.strip() == "コメント用フォーム":
+            continue
         result_data.append(data)
     return result_data
 
