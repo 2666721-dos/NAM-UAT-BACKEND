@@ -48,6 +48,7 @@ from itertools import groupby
 import random
 from typing import Optional, List
 from functools import partial
+import mimetypes 
 
 # 日志格式定义 (时间格式，日志级别，消息)
 log_format = '%(asctime)sZ: [%(levelname)s] %(message)s'
@@ -2604,8 +2605,6 @@ def extract_text(input_text, original_text):
         return None
 
 
-
-
 # def clean_percent_prefix(value: str):
 #     if not isinstance(value, str):
 #         return None
@@ -2668,7 +2667,7 @@ def extract_parts_with_direction(text: str, focus: str = None):
 #             "intgr": True,
 #         })
 
-    return corrections
+#     return corrections
 
 def add_comments_to_pdf(pdf_bytes, corrections, fund_type):
     """
@@ -4426,7 +4425,6 @@ def ruru_ask_gpt():
                 "ただし、出力文では、Referenceに指定された内部的な列名（例：「1ヶ月」「3ヶ月」「6ヶ月」「1年」など）は、そのまま引用せず、実際の年月や期間を示す自然な表現（例：「当月実際データ」など）に置き換えて説明してください。",
                 "この置換はReferenceの指示違反にはなりません。",
 
-
                 "【絶対値比較ルール（Reference優先適用）】",
                 "Reference に「プラスやマイナスは関係なく」「絶対値」「同程度」などの語が含まれる場合、Result 内の数値比較は絶対値を用いて行ってください。",
                 "この場合、符号の違い（プラス／マイナス）は完全に無視し、絶対値の差が Reference で定義された許容範囲（例：10％以内）に収まるかどうかのみを基準に判断してください。",
@@ -4455,6 +4453,7 @@ def ruru_ask_gpt():
                 "例：「小数第1位で四捨五入」「±0.1ポイント以内」「概ね一致」「同程度」など",
                 "上記条件が Reference に存在しない限り、**一切の誤差許容を認めず、1桁でも異なれば「不一致」となります。", 
                 "このルールは、Reference に明示された誤差許容や丸め指示がない限り、常に有効です。"
+
                 "【強制列合わせ・厳格比較ルール（強約束）】",
                 "1️⃣ 表列は必ずヘッダー名で位置合わせしてください。Referenceで「resultの「月次騰落率」の行の「x」の欄を参照します」と指示された場合は、表ヘッダー行から『◯月』（例：４月、５月、８月など）に該当する列インデックスを特定し、同じインデックス位置の「月次騰落率」行の値のみを取得してください。左からの順番や最初に見つかった数値で代用してはいけません。",
                 "2️⃣ 月名（例：８月/8月）や記号（＋/+/﹢，－/-/﹣）などは、全角・半角いずれも同一視して一致判定を行ってください。",
@@ -6274,6 +6273,293 @@ def openai_with_global_lock(
             except Exception as e:
                 print(f"警告：释放全局锁失败: {e}。该锁将在下次超时检查时被强制释放。")
 
+def list_from_azure_storage(prefix: str):
+    """
+    列出 Azure Blob Storage 中指定路径（或前缀）下的文件信息。
+    prefix 可以是文件夹名或文件名前缀，例如：
+        'reports/'  -> 返回该目录下的所有文件
+        'checked.pdf' -> 返回匹配该前缀的文件
+    :return: 文件信息列表 (list[dict]) 或 None
+    """
+    try:
+        container_client = get_storage_container()
+
+        blob_list = container_client.list_blobs(name_starts_with=prefix)
+        file_info_list = []
+
+        for blob in blob_list:
+            file_info_list.append({
+                "name": blob.name,
+                "size": blob.size,
+                "last_modified": blob.last_modified.isoformat() if blob.last_modified else None
+            })
+            logging.info(f"📄 Found blob: {blob.name} ({blob.size} bytes)")
+
+        logging.info(f"✅ Total {len(file_info_list)} blobs found under prefix: {prefix}")
+        return file_info_list
+
+    except Exception as e:
+        logging.error(f"❌ Storage listing error: {e}")
+        return None
+
+@app.route('/api/list_content', methods=['POST'])
+def list_content():
+    """
+    前端传入 JSON：
+    {
+        "blob_path": "folder_name/"   # 文件夹路径或前缀
+    }
+    返回：
+    {
+        "success": true,
+        "count": 5,
+        "data": [
+            {"name": "file1.pdf", "size": 20480, "last_modified": "2025-11-11T03:12:05Z"},
+            ...
+        ]
+    }
+    """
+    try:
+        data = request.json or {}
+        prefix = data.get('blob_path')
+
+        if not prefix:
+            return jsonify({"success": False, "error": "Missing parameter 'blob_path'"}), 400
+
+        file_list = list_from_azure_storage(prefix)
+
+        if file_list is None:
+            return jsonify({"success": False, "error": "Failed to access Azure Storage"}), 500
+
+        return jsonify({
+            "success": True,
+            "count": len(file_list),
+            "data": file_list
+        })
+
+    except Exception as e:
+        logging.exception("❌ Error in /api/list_content")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+def upload_to_azure_storage(file_bytes: bytes, file_name: str, file_folder: str = None) -> str:
+    """
+    上传文件到 Azure Blob Storage
+    :param file_bytes: 文件字节流
+    :param file_name: 文件名
+    :param file_folder: 可选文件夹路径
+    :return: 文件 URL 或 None
+    """
+    container_client = get_storage_container()
+    container_name = container_client.container_name
+
+    try:
+        # 构建 blob 路径
+        if file_folder:
+            blob_path = f"{file_folder.strip('/')}/{file_name}"
+        else:
+            blob_path = file_name
+
+        blob_client = container_client.get_blob_client(blob_path)
+
+        # 上传
+        blob_client.upload_blob(file_bytes, overwrite=True)
+
+        blob_url = blob_client.url
+        logging.info(f"✅ Blob uploaded: {blob_path} to container: {container_name}")
+        return blob_url
+
+    except Exception as e:
+        logging.error(f"❌ Storage Upload error ({type(e).__name__}): {e}")
+        return None
+        
+@app.route('/api/upload_file_to_azure', methods=['POST'])
+def upload_file_to_azure():
+    """
+    上传文件到 Azure Blob Storage
+    支持两种格式：
+      1️⃣ JSON base64 格式（file_content + file_name）
+      2️⃣ multipart/form-data（直接上传文件）
+    """
+    try:
+        file_folder = None
+        file_bytes = None
+        file_name = None
+
+        # --- 情况 1: JSON base64 上传 ---
+        if request.is_json:
+            data = request.get_json()
+            file_content = data.get('file_content')
+            file_name = data.get('file_name')
+            file_folder = data.get('file_folder', None)
+
+            if not file_content or not file_name:
+                return jsonify({"success": False, "error": "Missing parameters: file_content or file_name"}), 400
+
+            try:
+                file_bytes = base64.b64decode(file_content)
+            except Exception:
+                return jsonify({"success": False, "error": "Invalid base64 format"}), 400
+
+        # --- 情况 2: multipart/form-data 上传 ---
+        elif 'file' in request.files:
+            uploaded_file = request.files['file']
+            file_name = uploaded_file.filename
+            file_folder = request.form.get('file_folder', None)
+            file_bytes = uploaded_file.read()
+
+        else:
+            return jsonify({"success": False, "error": "No file provided"}), 400
+
+        # 上传
+        file_url = upload_to_azure_storage(file_bytes, file_name, file_folder)
+
+        if not file_url:
+            return jsonify({"success": False, "error": f"Failed to upload {file_name}"}), 500
+
+        return jsonify({"success": True, "file_url": file_url})
+
+    except Exception as e:
+        logging.exception("❌ Error in /api/upload_file_to_azure")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/download_file_from_azure', methods=['POST'])
+def download_file_from_azure():
+    """
+    从 Azure Blob 下载文件并直接返回给客户端，不保存到服务器本地。
+    """
+    try:
+        data = request.json or {}
+        file_name = data.get("file_name")
+
+        if not file_name:
+            return jsonify({"success": False, "error": "Missing parameter: file_name"}), 400
+
+        container_client = get_storage_container()
+        blob_client = container_client.get_blob_client(file_name)
+        blob_url = blob_client.url
+
+        if not blob_client.exists():
+            return jsonify({
+                "success": False,
+                "error": f"File not found in Azure Blob: {file_name}",
+                "blob_url": blob_url
+            }), 404
+
+        # 下载为字节流
+        file_bytes = blob_client.download_blob().readall()
+
+        # 自动识别 MIME
+        mimetype, _ = mimetypes.guess_type(file_name)
+        if mimetype is None:
+            mimetype = "application/octet-stream"
+
+        logging.info(f"✅ File streamed from Azure: {file_name}")
+
+        # 返回文件流
+        return send_file(
+            io.BytesIO(file_bytes),
+            mimetype=mimetype,
+            as_attachment=True,
+            download_name=os.path.basename(file_name)
+        )
+
+    except Exception as e:
+        logging.exception("❌ Error in /api/download_file_from_azure")
+        return jsonify({"success": False, "error": str(e)}), 500
+    
+@app.route('/api/delete_file', methods=['POST'])
+def delete_file():
+    """
+    删除 Azure Blob Storage 中的文件或文件夹。
+
+    参数示例:
+    {
+        "file_name": "reports/2025/report_2025.pdf",   # 可选，若为完整路径则忽略 file_folder
+        "file_folder": "reports/2025"                  # 可选，仅在 file_name 未指定路径时使用
+    }
+
+    逻辑:
+      1️⃣ 若传 file_name → 删除文件（若 file_name 含路径则直接使用）
+      2️⃣ 若未传 file_name 但传 file_folder → 删除整个文件夹
+      3️⃣ 若都未传 → 返回错误
+    """
+    try:
+        data = request.json or {}
+        file_name = data.get("file_name")
+        file_folder = data.get("file_folder", None)
+
+        container_client = get_storage_container()
+
+        # ---------------------------
+        # ✅ 条件1：删除文件（优先处理 file_name）
+        # ---------------------------
+        if file_name:
+            # 🔹 如果 file_name 已含路径（例如 reports/2025/report.pdf），则忽略 file_folder
+            if "/" in file_name.strip("/"):
+                blob_path = file_name.strip("/")
+
+            blob_client = container_client.get_blob_client(blob_path)
+            blob_url = blob_client.url
+
+            # 检查文件是否存在
+            if not blob_client.exists():
+                logging.warning(f"⚠️ File not found: {blob_path}")
+                return jsonify({
+                    "success": False,
+                    "error": f"File not found: {blob_path}",
+                    "blob_url": blob_url
+                }), 404
+
+            # 删除文件
+            blob_client.delete_blob()
+            logging.info(f"🗑️ Deleted file: {blob_path}")
+
+            return jsonify({
+                "success": True,
+                "message": f"Deleted file '{blob_path}' successfully.",
+                "blob_url": blob_url
+            }), 200
+
+        # ---------------------------
+        # ✅ 条件2：删除整个文件夹
+        # ---------------------------
+        elif file_folder:
+            prefix = file_folder.strip('/') + '/'
+            blobs = list(container_client.list_blobs(name_starts_with=prefix))
+
+            if not blobs:
+                logging.warning(f"⚠️ Folder not found or empty: {prefix}")
+                return jsonify({
+                    "success": False,
+                    "error": f"Folder not found or empty: {prefix}",
+                    "blob_prefix": prefix
+                }), 404
+
+            for blob in blobs:
+                container_client.delete_blob(blob.name)
+                logging.info(f"🗑️ Deleted from folder: {blob.name}")
+
+            deleted_count = len(blobs)
+            logging.info(f"✅ Deleted folder '{prefix}' with {deleted_count} file(s).")
+
+            return jsonify({
+                "success": True,
+                "message": f"Deleted folder '{prefix}' with {deleted_count} file(s).",
+                "deleted_count": deleted_count
+            }), 200
+
+        # ---------------------------
+        # ❌ 条件3：都没传
+        # ---------------------------
+        else:
+            return jsonify({
+                "success": False,
+                "error": "Missing parameters: must provide either file_name or file_folder."
+            }), 400
+
+    except Exception as e:
+        logging.exception("❌ Error in /api/delete_file")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 #10铭柄新追加
@@ -8776,8 +9062,6 @@ def handle_sheet_plus_si5(pdf_url, fcode, sheetname, fund_type, container, filen
 
     except Exception as e:
         return f"❌ handle_sheet_plussi5 error: {str(e)}"
-
-
 
 
 app = WsgiToAsgi(app)
