@@ -5910,7 +5910,7 @@ def get_words(converted_data, fund_type):
         #---0901,fix the error disable
         if "不自然な空白" in data["reason_type"] and fund_type == "public":
             continue
-        if "異常な色" in data["reason_type"] and fund_type == "private" and beforeChange.strip() == "コメント用フォーム":
+        if "異常な色" in data["reason_type"]  and afterChange=="コメント用フォーム":
             continue
         result_data.append(data)
     return result_data
