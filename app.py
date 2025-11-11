@@ -2606,14 +2606,14 @@ def extract_text(input_text, original_text):
 
 
 
-def clean_percent_prefix(value: str):
-    if not isinstance(value, str):
-        return None
-    for symbol in ['％', '%', 'ポイント']:
-        if symbol in value:
-            value = value.split(symbol)[0].strip()
-            return f"{value}{symbol}"
-    return value.strip()
+# def clean_percent_prefix(value: str):
+#     if not isinstance(value, str):
+#         return None
+#     for symbol in ['％', '%', 'ポイント']:
+#         if symbol in value:
+#             value = value.split(symbol)[0].strip()
+#             return f"{value}{symbol}"
+#     return value.strip()
                 
 def extract_parts_with_direction(text: str, focus: str = None):
     parts = re.split(r'[、。\n]', text)
@@ -2637,36 +2637,36 @@ def extract_parts_with_direction(text: str, focus: str = None):
             segments.extend(matches)
     return segments
 
-def extract_corrections(corrected_text, input_text,pageNumber):
-    corrections = []
+# def extract_corrections(corrected_text, input_text,pageNumber):
+#     corrections = []
     
-    # correction span
-    pattern_alt = re.compile(
-        r'<span.*?>(.*?)<\/span>\s*'
-        r'\(<span>提示:\s*(.*?)\s*<s.*?>(.*?)<\/s>\s*→\s*(.*?)<\/span>\)',
-        re.DOTALL
-    )
+#     # correction span
+#     pattern_alt = re.compile(
+#         r'<span.*?>(.*?)<\/span>\s*'
+#         r'\(<span>提示:\s*(.*?)\s*<s.*?>(.*?)<\/s>\s*→\s*(.*?)<\/span>\)',
+#         re.DOTALL
+#     )
 
-    matches = pattern_alt.findall(corrected_text)
+#     matches = pattern_alt.findall(corrected_text)
 
-    for match in matches:
-        original = match[0].strip()
-        reason = match[2].strip()
-        reason_type = match[1].strip()
-        corrected = match[3].strip()
+#     for match in matches:
+#         original = match[0].strip()
+#         reason = match[2].strip()
+#         reason_type = match[1].strip()
+#         corrected = match[3].strip()
 
-        comment = f"{reason} → {corrected}" if corrected else reason
-        # "%": "％"
-        corrections.append({
-            "page": pageNumber,
-            "original_text": clean_percent_prefix(reason),
-            "comment": comment, # +0.2% → 0.85% , 上升 -> 下落
-            "reason_type": reason_type, # ファンドの騰落率，B-xxx
+#         comment = f"{reason} → {corrected}" if corrected else reason
+#         # "%": "％"
+#         corrections.append({
+#             "page": pageNumber,
+#             "original_text": clean_percent_prefix(reason),
+#             "comment": comment, # +0.2% → 0.85% , 上升 -> 下落
+#             "reason_type": reason_type, # ファンドの騰落率，B-xxx
 
-            "check_point": input_text.strip(), # 当月のファンドの騰落率は+0.2%となりました。 A B -xxx
-            "locations": [],
-            "intgr": True,
-        })
+#             "check_point": input_text.strip(), # 当月のファンドの騰落率は+0.2%となりました。 A B -xxx
+#             "locations": [],
+#             "intgr": True,
+#         })
 
     return corrections
 
@@ -4540,7 +4540,7 @@ def ruru_ask_gpt():
                             "focus": focus,
                             "reference": reference,
                             "page": pageNumber,
-                            "original_text": clean_percent_prefix(error_data),
+                            "original_text": error_data,
                             "check_point": input,
                             "comment": f"{error_data} → {reason}", 
                             "reason_type":"整合性不正検知", 
@@ -4581,7 +4581,7 @@ def ruru_ask_gpt():
                 "reference": reference,
                 "focus": focus,
                 "page": pageNumber,
-                "original_text": clean_percent_prefix(input),
+                "original_text": input,
                 "check_point": input,
                 "comment": f"{input} → ",
                 "reason_type": "整合性",
