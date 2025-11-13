@@ -4574,6 +4574,7 @@ def ruru_ask_gpt():
                         corrections.append({
                             "focus": focus,
                             "reference": reference,
+                            "target_condition": target_condition,
                             "page": pageNumber,
                             "original_text": error_data,
                             "check_point": input,
@@ -4594,6 +4595,7 @@ def ruru_ask_gpt():
                     if part:
                         corrections.append({
                             "focus": focus,
+                            "target_condition": target_condition,
                             "page": pageNumber,
                             "original_text": part.strip(),
                             "check_point": input,
@@ -4615,6 +4617,7 @@ def ruru_ask_gpt():
             corrections.append({
                 "reference": reference,
                 "focus": focus,
+                "target_condition": target_condition,
                 "page": pageNumber,
                 "original_text": input,
                 "check_point": input,
