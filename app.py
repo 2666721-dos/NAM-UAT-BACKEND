@@ -7,6 +7,7 @@ import pandas as pd
 from azure.identity import DefaultAzureCredential
 from azure.cosmos import CosmosClient, PartitionKey
 from azure.storage.blob import BlobServiceClient
+from azure.cosmos import exceptions
 import logging
 from datetime import datetime,timezone,timedelta,UTC
 import uuid
@@ -2696,14 +2697,14 @@ def add_comments_to_pdf(pdf_bytes, corrections, fund_type):
             raise ValueError("Each correction must contain 'page', 'original_text', and 'comment' keys.")
 
     # ========= 去重逻辑 =========
-    seen = set()
-    unique_corrections = []
-    for c in corrections:
-        key = (c["page"], c["original_text"], c["comment"])
-        if key not in seen:
-            seen.add(key)
-            unique_corrections.append(c)
-    corrections = unique_corrections
+    # seen = set()
+    # unique_corrections = []
+    # for c in corrections:
+    #     key = (c["page"], c["original_text"], c["comment"])
+    #     if key not in seen:
+    #         seen.add(key)
+    #         unique_corrections.append(c)
+    # corrections = unique_corrections
     # ===========================
 
     try:
@@ -4464,15 +4465,6 @@ def ruru_ask_gpt():
                 "4️⃣ 数値抽出の際は、+ 1.19 や - 0.07 のような空白を含む値を正規化し、+1.19% / -0.07% のように統一して比較してください。",
                 "5️⃣ 抽出した値の符号に応じて、Inputの表現（上昇／下落）と方向性が一致しているか確認してください。プラスと上昇、マイナスと下落が一致していれば整合、逆であれば不整合です。",
 
-                "【焦点注視ルール（高優先度）】",
-                "- 本ルールで指す「注目語句」は、内部的に【Focus（焦点）】で指定されたパラメータに基づきます。",
-                "- この注目語句は、【Example_Text（文脈参照）】内で該当する語句や構文を特定し、その文節または句を起点として【Input（原文／要約文）】中の対応箇所を特定するために使用します。",
-                "- つまり、焦点項目は「Example_Text → Input」間の照合範囲を限定し、判定対象文の抽出を精密化するための基点として機能します。",
-                "- 注目語句が特定された後は、その周辺文脈（特に数値・方向性語を含む部分）を抽出対象とし、【Result（結果データ）】および【Reference（抽出指示）】に従って照合・比較を行ってください。",
-                "- 特に、焦点が示す語句が「上昇／下落／＋／－」など方向性を持つ場合、方向性判断はResultに基づいて行い、Focusの語句自体は根拠に使用してはいけません。",
-                "- 同一の【Example_Text】であっても、【Focus】が異なれば注目点が変わり、評価結果が異なることがあります。その場合は注目範囲の差異を正しく考慮してください。",
-                "- 出力文の引用部や理由文中に、【Focus】に含まれる語句をそのまま再表示してはいけません。これらは内部的な注視情報としてのみ使用し、最終出力には含めないこと。",
-
                 "【派生値計算ルール（差分推定）】",
                 "Referenceに『AからBを引いた値』などの指示がある場合、表中に直接該当列が存在しなくても、AおよびBの数値を利用して派生値を算出しなければなりません。",
                 "例えば『合計−日本円＝外貨比率』のように明示的な差分関係が指定されている場合、必ずこの計算を実行して比較対象としてください。",
@@ -4480,7 +4472,17 @@ def ruru_ask_gpt():
 
                 "【補足パラメータの説明と使用ルール】",
                 "① Example_Text：Inputに対応する原文の一部を示す文章。数値部分は過去の値である可能性があるため、Example_Text内の数値は比較対象としないでください。文意のみ参考にしてください。",
-                "② Focus：Example_Textの中で特に注目すべき語句または数値。複数のチェックルールが同一のExample_Textを持つ場合でも、Focusが異なれば注目点を変えて比較を行ってください。つまり、Focusが指す部分を重点的に評価対象とします。",
+                "② Focus（焦点定義・Example_Text経由の定位）:",
+                "Focus は、Example_Text 内で特に注目すべき語句または表現を示す『焦点』です。Focus 自体は Input に直接対応するものではなく、Example_Text を介して Input 内の比較対象部分を特定するための指標として機能します。",
+                "したがって、Focus に含まれる数値・％・円・上昇／下落などの語句は、比較や説明の根拠として使用してはいけません（定位以外の用途は禁止）。",
+                "判定フロー：",
+                "A. 定位（Example_Text → Input）：Focus に含まれる語句（例：コース名、指標名、基準価額、騰落率 など）を手掛かりに Example_Text 内の該当する文または句を特定し、その部分を基に Input 内の対応文を特定します。Example_Text は Input の該当箇所を特定するための橋渡しとして使用します。",
+                "B. 取得（Result 側）：比較に用いる数値・符号・方向性語は、必ず Reference の指示に従って Result から取得します。Focus から値を抽出したり、Example_Text に含まれる数値を比較に使用したりしてはいけません。",
+                "C. 比較対象：Example_Text を経由して特定された Input の文のみを比較対象とします。Input の文に方向性語しか含まれない場合は、方向性の一致のみを判定し、数値比較は行いません。",
+                "D. 単位整合：Input 側に比率（％）や金額（円）などの単位が含まれる場合、Result 側の単位と一致する場合のみ数値比較を行います。単位が異なる場合（％ ↔ 円）は比較を行わず、「判定不能（指標不一致）」とします。",
+                "E. Focus に含まれる数値や方向性語は、再表示・引用・比較のいずれにも使用してはいけません。Focus はあくまで『Example_Text 内の注目点を示し、Input の対応文を特定するための焦点』として機能します。",
+                "このルールにより、AI は Focus → Example_Text → Input の順に照合範囲を絞り込み、最終的に Result から取得した値のみを用いて照合・判定を行います。",
+
                 "③ Reference：Resultからデータを検索・抽出するための説明文またはルール。Referenceの指示に従い、Result中の該当データ（数値や語句）を取得し、その値や意味をInput内の該当箇所と比較します。",
                 " 例1：Resultに「+3.49%」、Inputに「+2.88%」が存在する場合 ⇒ 不整合と判断する。",
                 " 例2：Resultに「+3.49%」、Inputに「下落」など逆方向の語が存在する場合 ⇒ 不整合と判断する。",
@@ -4488,27 +4490,6 @@ def ruru_ask_gpt():
                 "これは、Input と Result の比較結果を解釈・評価するための指針であり、数値比較の対象そのものではありません。",
                 "Target_condition に記載された値や表現（例：95.1%など）を、Result や Input の値と直接比較してはいけません。",
                 "評価の基準としてのみ参照し、実際に比較するのは Result から得られた値と Input 内の該当箇所の値に限定します。",
-
-                "【Target_condition 追加ルール（短句強制一致）】",
-                "- Target_condition に特定の短句が含まれている場合、その短句は Input（文章）内にも",
-                "完全一致する形で存在していなければなりません。",
-                "存在しない場合、AI は必ず「不整合」と判断してください。",
-
-                "- この短句一致ルールは、数値比較・方向性判定・文脈推定とは独立に適用される",
-                "強制一致ルールであり、Result の内容や数値に依存しません。",
-                "Input 内に該当語句が存在するかどうかのみを基準とします。",
-
-                "- **以下の語句は強制一致対象として扱います：**",
-                "● 「（香港ドルによる代替ヘッジを含む）」",
-
-                "- 上記の強制一致対象語句については、次の点に注意してください：",
-                "● Input 内にまったく同一の文字列が存在しない場合 → 必ず「不整合」",
-                "● 句読点・括弧・文字種（全角/半角）・語尾・語順の相違は一致とみなさない",
-                "● 部分一致や類似表現（例：「香港ドルで代替ヘッジ」等）は一致とみなさない",
-                "● 正確に同一文字列である場合のみ「一致」と判断する",
-
-                "- 強制一致対象語句が Target_condition に存在しない場合、",
-                "本ルールは発動せず、通常の数値比較・方向性判断などのルールを適用します。",
 
                 "【表形式データの取扱い】",
                 "Resultの中に「|」で区切られた文字列が複数存在する場合、それは表（テーブル）形式のデータを示します。この場合、列構造を理解し、該当列の値を正しく抽出して比較してください。",
@@ -6031,14 +6012,14 @@ def save_corrections():
         final_corrections = filtered_corrections
 
         # === Step 4: 去重 ===
-        seen = set()
-        unique_corrections = []
-        for c in final_corrections:
-            key = (c.get("page"), c.get("original_text"), c.get("comment"))
-            if key not in seen:
-                seen.add(key)
-                unique_corrections.append(c)
-        final_corrections = unique_corrections
+        # seen = set()
+        # unique_corrections = []
+        # for c in final_corrections:
+        #     key = (c.get("page"), c.get("original_text"), c.get("comment"))
+        #     if key not in seen:
+        #         seen.add(key)
+        #         unique_corrections.append(c)
+        # final_corrections = unique_corrections
 
         # === Step 5: 保存至 Cosmos DB ===
         item = {
@@ -6334,7 +6315,7 @@ def list_from_azure_storage(prefix: str):
     except Exception as e:
         logging.error(f"❌ Storage listing error: {e}")
         return None
-
+####### Azure Blob Storage API Operation
 @app.route('/api/list_content', methods=['POST'])
 def list_content():
     """
@@ -6593,8 +6574,143 @@ def delete_file():
     except Exception as e:
         logging.exception("❌ Error in /api/delete_file")
         return jsonify({"success": False, "error": str(e)}), 500
+####### Azure Cosmos DB Operation START #######
+@app.route("/api/cosmos_query", methods=["POST"])
+def cosmos_query():
+    data = request.json or {}
+
+    query = data.get("query")
+    container_name = data.get("container")
+
+    if not query:
+        logging.error("❌ 缺少查询语句 query_sql")
+        return jsonify({"success": False, "error": "未提供查询语句（query）"}), 400
+
+    if not container_name:
+        logging.error("❌ 缺少容器名称 container_name")
+        return jsonify({"success": False, "error": "未提供容器名称（container）"}), 400
+
+    try:
+        container = get_db_connection(container_name)
+        items = list(container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+
+        if items:
+            logging.info(f"🔍 Cosmos DB 查询成功，共 {len(items)} 件")
+            return jsonify({"success": True, "count": len(items), "items": items})
+        else:
+            logging.info("ℹ️ 查询成功，但无匹配结果。返回空列表。")
+            return jsonify({"success": True, "count": 0, "items": []})
+
+    except exceptions.CosmosHttpResponseError as e:
+        logging.error(f"❌ Cosmos DB 查询错误: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    except Exception as e:
+        logging.error(f"❌ 未知错误: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/api/cosmos_delete", methods=["POST"])
+def cosmos_delete():
+    data = request.json or {}
+    query = data.get("query")
+    container_name = data.get("container")
+    partition_key_field = data.get("partition_key", "id")
+
+    if not query:
+        logging.error("❌ 缺少查询语句 query_sql")
+        return jsonify({"success": False, "error": "未提供查询语句（query）"}), 400
+
+    if not container_name:
+        logging.error("❌ 缺少容器名称 container_name")
+        return jsonify({"success": False, "error": "未提供容器名称（container）"}), 400
+
+    try:
+        container = get_db_connection(container_name)
+        items = list(container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ))
+
+        if not items:
+            logging.info("ℹ️ 无匹配记录，未执行删除。")
+            return jsonify({"success": True, "deleted": 0, "message": "No items found."})
+
+        deleted_count = 0
+        for item in items:
+            try:
+                pk_value = item.get(partition_key_field)
+                if pk_value is None:
+                    logging.warning(f"⚠️ 记录 {item.get('id', '未知ID')} 缺少 partition key 字段 {partition_key_field}，跳过删除。")
+                    continue
+
+                container.delete_item(item=item["id"], partition_key=pk_value)
+                deleted_count += 1
+                logging.info(f"🗑️ 已删除文档: {item['id']} (partition_key={pk_value})")
+
+            except Exception as e:
+                logging.warning(f"⚠️ 删除失败: {item.get('id', '未知ID')} -> {e}")
+
+        logging.info(f"✅ Cosmos DB 删除完成，共 {deleted_count} 条。")
+        return jsonify({"success": True, "deleted": deleted_count})
+
+    except exceptions.CosmosHttpResponseError as e:
+        logging.error(f"❌ Cosmos DB 删除错误: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    except Exception as e:
+        logging.error(f"❌ 未知错误: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/cosmos_create", methods=["POST"])
+def cosmos_create():
+    data = request.json or {}
+    container_name = data.get("container")
+    data_list = data.get("data_list", [])
+
+    if not container_name:
+        logging.error("❌ 缺少容器名称 container_name")
+        return jsonify({"success": False, "error": "未提供容器名称（container）"}), 400
+
+    if not isinstance(data_list, list) or not data_list:
+        logging.error("❌ 缺少 data_list 或格式错误")
+        return jsonify({"success": False, "error": "未提供有效的数据列表（data_list）"}), 400
+
+    try:
+        container = get_db_connection(container_name)
+        inserted_count = 0
+
+        for entry in data_list:
+            if not isinstance(entry, dict):
+                logging.warning("⚠️ 非法条目（非dict），跳过。")
+                continue
+
+            # ✅ file_id 生成逻辑调整
+            if container_name in ["private_Fund", "public_Fund", "checked_pdf"]:
+                file_id = entry.get("id") or entry.get("fileName") or str(uuid.uuid4())
+            else:
+                file_id = entry.get("id") or str(uuid.uuid4())
+
+            item = dict(entry)
+            item["id"] = file_id
+            item["updateTime"] = datetime.utcnow().isoformat()
+
+            container.create_item(body=item)
+            inserted_count += 1
+            logging.info(f"✅ 插入成功: {file_id}")
+
+        logging.info(f"📦 Cosmos DB 插入完成：共 {inserted_count} 条")
+        return jsonify({"success": True, "inserted": inserted_count})
+
+    except exceptions.CosmosHttpResponseError as e:
+        logging.error(f"❌ Cosmos DB 插入错误: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    except Exception as e:
+        logging.error(f"❌ 未知错误: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+####### Azure Cosmos DB Operation END #######
 #10铭柄新追加
 
 # PDF 容器路径
