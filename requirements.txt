@@ -24,3 +24,5 @@ asgiref
 pdfplumber
 jaconv
 regex
+pypdf
+
