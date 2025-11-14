@@ -24,8 +24,10 @@ asgiref
 pdfplumber
 jaconv
 regex
-pypdf
-rapidfuzz
-typing
+pypdf==6.2.0
+RapidFuzz==3.14.3
+typing_extensions==4.15.0
+typing-inspection==0.4.2
+
 
 
