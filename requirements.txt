@@ -25,4 +25,7 @@ pdfplumber
 jaconv
 regex
 pypdf
+rapidfuzz
+typing
+
 
