@@ -4801,7 +4801,6 @@ def ruru_ask_gpt():
                     return jsonify({"success": False, "error": str(e)}), 500
         if not corrections:
             corrections.append({
-                "extract_text__answer": __answer,
                 "reference": reference,
                 "focus": focus,
                 "target_condition": target_condition,
