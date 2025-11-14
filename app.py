@@ -50,6 +50,9 @@ import random
 from typing import Optional, List
 from functools import partial
 import mimetypes 
+from pypdf import PdfReader
+from rapidfuzz import fuzz
+from typing import Tuple
 
 # 日志格式定义 (时间格式，日志级别，消息)
 log_format = '%(asctime)sZ: [%(levelname)s] %(message)s'
@@ -4364,6 +4367,101 @@ def mask_numbers_and_signs(text):
     text = re.sub(r"(上昇|下落|プラス要因|マイナス要因|引き上げ|引き下げ)", "[方向伏せ]", text)
     return text
 
+def find_most_similar_segment(target: str, text: str) -> Tuple[str, float]:
+    """
+    在一段文本中使用滑动窗口查找与目标字符串最相似的片段。
+
+    :param target: 目标字符串。
+    :param text: 在其中搜索的文本段落。
+    :return: 一个元组，包含最相似的文本片段和其相似度分数。
+    """
+    target_len = len(target)
+    if not text or len(text) < target_len:
+        return "", -1.0
+
+    best_score = -1.0
+    best_segment = ""
+
+    # 使用滑动窗口进行比较
+    for i in range(len(text) - target_len + 1):
+        segment = text[i:i + target_len]
+        score = fuzz.ratio(target, segment)
+
+        if score > best_score:
+            best_score = score
+            best_segment = segment
+            # 如果找到完美匹配，可以提前退出以提高效率
+            if score == 100:
+                break
+
+    return best_segment, best_score
+
+def find_text_in_pdf(pdf_base64_string: str, 
+                     search_text: str, 
+                     target_page_number: int, 
+                     similarity_threshold: float = 50.0) -> str:
+    """
+    在 base64 编码的 PDF 中查找与目标文本最相似的片段。
+
+    只有当相似度最高的文本片段满足以下两个条件时，才返回该片段：
+    1. 其相似度分数高于指定的阈值 (默认为 50%)。
+    2. 其所在的页码与目标页码匹配。
+    否则，返回空字符串。
+
+    :param pdf_base64_string: 经过 base64 编码的 PDF 内容字符串。
+    :param search_text: 需要在 PDF 中搜索的文本。
+    :param target_page_number: 期望找到文本的页码（从 0 开始）。
+    :param similarity_threshold: 相似度必须超过的阈值。
+    :return: 相似度最高的文本片段或空字符串。
+    """
+    try:
+        decoded_pdf = base64.b64decode(pdf_base64_string)
+        pdf_file = io.BytesIO(decoded_pdf)
+        reader = PdfReader(pdf_file)
+
+        overall_best_segment = ""
+        overall_best_score = -1.0
+        best_match_page_number = -1
+
+        # 遍历所有页面，找到全局最相似的文本
+        for i, page in enumerate(reader.pages):
+            page_text = page.extract_text()
+            if not page_text:
+                continue
+            
+            # 清理文本，将换行符替换为空格，以处理跨行文本
+            cleaned_text = page_text.replace('\n', ' ').replace('\r', '')
+            
+            segment, score = find_most_similar_segment(search_text, cleaned_text)
+
+            if score > overall_best_score:
+                overall_best_score = score
+                overall_best_segment = segment
+                best_match_page_number = i
+
+        # 进行最终校验：相似度和页码必须同时满足条件
+        is_score_sufficient = overall_best_score > similarity_threshold
+        is_page_correct = best_match_page_number == target_page_number
+
+        if is_score_sufficient and is_page_correct:
+            print(f"成功: 在目标页面 {target_page_number} 找到匹配项。相似度: {overall_best_score:.2f}% (高于阈值 {similarity_threshold}%)。")
+            return overall_best_segment
+        else:
+            # 打印失败原因
+            if not is_score_sufficient:
+                # 仅在找到过内容时打印分数信息
+                if best_match_page_number != -1:
+                    print(f"失败: 找到的最高相似度 ({overall_best_score:.2f}%) 未超过阈值 {similarity_threshold}%。")
+            if not is_page_correct:
+                # 仅在找到过内容时打印页码信息
+                if best_match_page_number != -1:
+                    print(f"失败: 最佳匹配项位于页面 {best_match_page_number}，而非目标页面 {target_page_number}。")
+            return ""
+
+    except Exception as e:
+        print(f"处理 PDF 时发生错误: {e}")
+        return ""
+
 @app.route('/api/ruru_ask_gpt', methods=['POST'])
 def ruru_ask_gpt():
     try:
@@ -4384,10 +4482,13 @@ def ruru_ask_gpt():
         
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        input, __answer = loop.run_until_complete(get_original(_input, orgtext))
+        # input, __answer = loop.run_until_complete(get_original(_input, orgtext))
                 
         corrections = []
         pdf_base64 = data.get("pdf_bytes", "")
+
+        input = find_text_in_pdf(pdf_base64, orgtext, pageNumber)
+
         if not input:
             dt = [
             "文章から原文に類似したテキストを抽出してください",
