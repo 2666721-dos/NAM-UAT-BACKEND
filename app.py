@@ -3899,33 +3899,82 @@ def save_local_link():
         simu = data.get("simu")
         resultngPath = data.get("resultngPath")
         resultokPath = data.get("resultokPath")
-        fund_type = data.get("fund_type")
+        individualFinalVerPath = data.get('individualFinalVerPath')
+        CommonFinalVerPath = data.get('CommonFinalVerPath')
+        fund_type = data.get("fund_type")    # ← "公募" 或 "私募"
+
         container = get_db_connection(LOCAL_LINK)
+
+        # 读取当前记录
         link_data = list(container.query_items(
-           query=f"SELECT * FROM c WHERE c.fund_type='{fund_type}'",
+            query=f"SELECT * FROM c WHERE c.fund_type='{fund_type}'",
             enable_cross_partition_query=True
         ))
+
+        # 构建当前记录需要更新的内容
         update_data = dict(
-                fund_type=fund_type,
-                commonComment=commonComment,
-                individualCheckPath=individualCheckPath,
-                individualComment=individualComment,
-                individualExcelPath=individualExcelPath,
-                individualPdfPath=individualPdfPath,
-                meigaramaster=meigaramaster,
-                reportData=reportData,
-                simu=simu,
-                resultngPath=resultngPath,
-                resultokPath=resultokPath
+            fund_type=fund_type,
+            commonComment=commonComment,
+            individualCheckPath=individualCheckPath,
+            individualComment=individualComment,
+            individualExcelPath=individualExcelPath,
+            individualPdfPath=individualPdfPath,
+            meigaramaster=meigaramaster,
+            reportData=reportData,
+            simu=simu,
+            resultngPath=resultngPath,
+            resultokPath=resultokPath,
+            individualFinalVerPath=individualFinalVerPath,
+            CommonFinalVerPath=CommonFinalVerPath
         )
 
+        # ---------------------------------------
+        # ▶ 1. 更新当前 fund_type 的记录
+        # ---------------------------------------
         if not link_data:
             update_data.update(id=str(uuid.uuid4()))
             container.upsert_item(update_data)
         else:
-            effective_data = dict(filter(lambda x: x[1] is not None, update_data.items()))
+            effective_data = {k: v for k, v in update_data.items() if v is not None}
             link_data[0].update(effective_data)
             container.upsert_item(link_data[0])
+
+        # ---------------------------------------
+        # ▶ 2. 同步更新另一条 fund_type 记录
+        # ---------------------------------------
+        # fund_type 为中文
+        opposite_type = "公募" if fund_type == "私募" else "私募"
+
+        # 读取另一条记录
+        other_link_data = list(container.query_items(
+            query=f"SELECT * FROM c WHERE c.fund_type='{opposite_type}'",
+            enable_cross_partition_query=True
+        ))
+
+        # 只同步两个字段（业务要求）
+        sync_fields = {
+            "commonComment": commonComment,
+            "CommonFinalVerPath": CommonFinalVerPath
+        }
+
+        # 如果另一条不存在 → 创建新记录
+        if not other_link_data:
+            new_item = {
+                "id": str(uuid.uuid4()),
+                "fund_type": opposite_type,
+                **sync_fields
+            }
+            container.upsert_item(new_item)
+        else:
+            changed = False
+            for key, value in sync_fields.items():
+                if value is not None and other_link_data[0].get(key) != value:
+                    other_link_data[0][key] = value
+                    changed = True
+
+            if changed:
+                container.upsert_item(other_link_data[0])
+
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 404
@@ -5040,14 +5089,87 @@ def opt_typo():
             return jsonify({"success": False, "error": "No input provided"}), 400
         if len(input) < 5:
             return jsonify({"success": True, "corrections": []})
-
-        # 原文保留给 opt_common / 位置匹配
+        # ============================================================
+        # ### 你要求插入的位置 —— 语义错误检测（Semantic Errors）
+        # ============================================================
         original_input = input
+        prompt_result_specfic = f"""
+                            【検出対象：Semantic Errors（語彙誤用・意味的誤り）】
+                            次のような「意味を壊す語彙誤り」または「不自然な語構成」をすべて検出し、誤っている最小単位だけを original に抽出してください。
 
-        # ① 先在 opt_typo 层面运行：送り仮名「な」欠落の検出（原文）
-        pre_corrections = collect_okurigana_na_issues(original_input, pageNumber)
+                            - 名詞句の内部に、本来入らない漢字（例：不要な「的」「性」「度」「的に」）が混入して意味が壊れているもの  
+                            例：政治の的安定 → 正しくは「政治の安定」
 
-        # ② 构造“掩码版输入”，只给 GPT（避免 Okurigana 被 GPT 触碰）
+                            - 語彙の選択が文脈に対して意味的に不自然、論理的に不可能なもの  
+                            （金融・経済レポートの文脈で成立しない語の組合せ）
+
+                            - 日本語として通常成立しない不自然な複合語  
+                            例：短期的な政治の的安定、投資環境の度改善 など
+
+                            - 文章の意味を阻害する語の誤挿入・語順破綻
+                            - 語彙の意味的な取り違え、文脈に適さない語（例：「悪化」の代わりに「改善」が誤って入っている等）
+
+                            【出力フォーマット（厳守）】
+                            以下の JSON 配列形式のみを返してください。説明文は一切書かないでください。
+
+                            [
+                            {{
+                                "original": "短期的な政治の的安定が意識されたことなどを背景に",
+                                "correct": "短期的な政治の安定が意識されたことなどを背景に",
+                                "reason": "語彙誤用・意味的誤り（不要な「的」が混入）"
+                            }}
+                            【対象文章】
+                            {original_input}
+                            ]
+                            """
+
+        messages_semantic = [
+            {"role": "system", "content": "あなたは日本語テキストの「語彙誤用・意味的誤り」検出専門アシスタントです。"},
+            {"role": "user", "content": prompt_result_specfic}
+        ]
+
+        response_semantic = openai_with_global_lock(messages=messages_semantic)
+        answer_semantic_raw = response_semantic["choices"][0]["message"]["content"]
+
+        # === 将 answer_semantic 转换为 pre_corrections 的统一结构 ===
+        pre_semantic_corrections = []
+        try:
+            parsed = json.loads(answer_semantic_raw)
+            if isinstance(parsed, dict):
+                parsed = [parsed]
+
+            for item in parsed:
+                wrong = item.get("original", "")
+                corrected = item.get("correct", "")
+                reason = item.get("reason", "")
+
+                if wrong and corrected:
+                    pre_semantic_corrections.append({
+                        "page": pageNumber,
+                        "original_text": wrong,
+                        "comment": f"{wrong} → {corrected}",
+                        "reason_type": reason,
+                        "check_point": wrong,
+                        "locations": [],
+                        "intgr": False,
+                    })
+        except Exception:
+            pre_semantic_corrections = []
+        # ============================================================
+        # ### Semantic errors 转换处理结束
+        # ============================================================
+
+
+        # ============================================================
+        # ① 先运行原本的 okurigana 欠落检测
+        # ============================================================
+        pre_okurigana = collect_okurigana_na_issues(original_input, pageNumber)
+
+        # ========= 合并两个 pre_corrections =========
+        pre_corrections = pre_okurigana + pre_semantic_corrections
+
+
+        # ② 掩码版输入（保持你的原逻辑）
         skip_patterns = [
             r"行う", r"行い", r"行って", r"行った", r"行われ", r"行われる", r"行わない",
             r"行なう", r"行ない", r"行なって", r"行なった", r"行なわれ", r"行なわれる", r"行なわない"
@@ -5072,8 +5194,8 @@ def opt_typo():
             "- 出力結果は毎回同じにしてください（**同じ入力に対して結果が変動しないように**してください）。",
             "- originalには必ず全文や長い文ではなく、**reason_typeで指摘されている最小限の誤りポイント（単語や助詞など）**のみを記載してください。",
             "- 1単語またはごく短いフレーズ単位でoriginalを抽出してください。",
-            "- originalはreason_typeの説明に該当する部分のみを抽出してください（例：『など』の後には助詞『の』が必要）。",
-            "- 同じ入力には常に**同じJSON形式の出力**を返してください（推論の揺れを避けてください）。",
+            "- originalはreason_typeの説明に該当する部分のみを抽出してください。",
+            "- 同じ入力には常に**同じJSON形式の出力**を返してください。",
             "- 🚫 **「文の区切りの誤り」「句点の追加」などの句読点関連の修正は一切行わないでください。**",
             "- 🚫 **句点が欠けていても指摘対象外とします。**",
             "出力は以下のJSON形式でお願いします:",
@@ -5110,13 +5232,13 @@ def opt_typo():
 
         # ⑦ 后处理：删除任何 "句点の追加" 或 "文の区切りの誤り" 的修正项
         try:
-            data = json.loads(_content.get_json()["corrections"]) if hasattr(_content, "get_json") else _content.get("corrections", [])
+            data_out = json.loads(_content.get_json()["corrections"]) if hasattr(_content, "get_json") else _content.get("corrections", [])
             filtered = [
-                c for c in data
+                c for c in data_out
                 if not re.search(r"(句点の追加|文の区切りの誤り)", c.get("reason", ""))
             ]
-            if len(filtered) != len(data):
-                print(f"⚠️ Removed {len(data) - len(filtered)} punctuation-related corrections.")
+            if len(filtered) != len(data_out):
+                print(f"⚠️ Removed {len(data_out) - len(filtered)} punctuation-related corrections.")
             return jsonify({"success": True, "corrections": filtered})
         except Exception:
             return _content
