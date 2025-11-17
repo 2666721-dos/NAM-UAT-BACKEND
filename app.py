@@ -4475,7 +4475,7 @@ def ruru_ask_gpt():
         masked_orgtext = mask_numbers_and_signs(orgtext)
         target_condition = data.get("Target_Condition", "")
         result = data.get("result", "")
-        focus = data.get("focus", "")
+        focus = data.get("focus", "") or ""
         masked_focus = mask_numbers_and_signs(focus)
         reference = data.get("reference", "")
         pageNumber = data.get('pageNumber',0)
