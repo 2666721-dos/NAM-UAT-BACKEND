@@ -4774,7 +4774,7 @@ def ruru_ask_gpt():
                             "reference": reference,
                             "target_condition": target_condition,
                             "page": pageNumber,
-                            "original_text": error_data,
+                            "original_text": orgtext,
                             "check_point": input,
                             "comment": f"{error_data} → {reason}", 
                             "reason_type":"整合性不正検知", 
