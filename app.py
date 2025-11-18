@@ -6703,7 +6703,7 @@ def upload_file_to_azure():
 @app.route('/api/download_file_from_azure', methods=['POST'])
 def download_file_from_azure():
     """
-    从 Azure Blob 下载文件并直接返回给客户端，不保存到服务器本地。
+    从 Azure Blob 下载文件并以 Base64 JSON 的形式返回（适配前端 retry 逻辑）
     """
     try:
         data = request.json or {}
@@ -6723,7 +6723,7 @@ def download_file_from_azure():
                 "blob_url": blob_url
             }), 404
 
-        # 下载为字节流
+        # 下载二进制
         file_bytes = blob_client.download_blob().readall()
 
         # 自动识别 MIME
@@ -6731,15 +6731,16 @@ def download_file_from_azure():
         if mimetype is None:
             mimetype = "application/octet-stream"
 
-        logging.info(f"✅ File streamed from Azure: {file_name}")
+        logging.info(f"✅ File streamed from Azure as Base64 JSON: {file_name}")
 
-        # 返回文件流
-        return send_file(
-            io.BytesIO(file_bytes),
-            mimetype=mimetype,
-            as_attachment=True,
-            download_name=os.path.basename(file_name)
-        )
+        file_base64 = base64.b64encode(file_bytes).decode("utf-8")
+
+        return jsonify({
+            "success": True,
+            "file_name": os.path.basename(file_name),
+            "mimetype": mimetype,
+            "file_content_base64": file_base64
+        }), 200
 
     except Exception as e:
         logging.exception("❌ Error in /api/download_file_from_azure")
