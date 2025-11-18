@@ -6343,7 +6343,7 @@ def save_corrections():
                     return jsonify({"success": False, "error": str(e)}), 500
             return jsonify({
                 "success": True,
-                "corrections": corrections,
+                "corrections": final_corrections,
                 "pdf_download_token": file_name
             })
 
