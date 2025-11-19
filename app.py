@@ -1,3 +1,4 @@
+from calendar import c
 import os
 import openai
 from flask import Flask, request, jsonify, send_file,session,redirect
@@ -1017,7 +1018,9 @@ def convert_to_tenbrend(items):
         if old_text != new_text:
             corrections.append({
                 "check_point": "組入銘柄解説",
-                "comment": f"{old_text} → {new_text}",
+                # change comment content
+                # "comment": f"{old_text} → {new_text}",
+                "comment": f"{new_text}",
                 "intgr": False,
                 "locations": [],
                 "original_text": new_text,
@@ -1037,9 +1040,21 @@ def convert_format(filtered_items):
         position = {}
         colorSet = "rgb(172 228 230)"
 
+        # ⭐ 最小化修改：新增字段全部改为 get()
+        original_text = correction.get("original_text", "")
+        comment = correction.get("comment", "")
+        focus = correction.get("focus", "")
+        reference = correction.get("reference", "")
+        target_condition = correction.get("target_condition", "")
+        reason_type = correction.get("reason_type", "")
+        check_point = correction.get("check_point", "")
+        # change comment content
+        # after_text = comment.split("→")[-1].strip() if comment else ""
+        after_text = comment.strip()
+
         change = {
-            "before": correction["original_text"],
-            "after": correction["comment"].split("→")[-1].strip(),
+            "before": original_text,
+            "after": after_text,
         }
         if correction["intgr"]:
             name = "不一致"
@@ -1065,18 +1080,23 @@ def convert_format(filtered_items):
                     "width": loc["x1"] - loc["x0"],
                     "height": loc["y1"] - loc["y0"],
                 }
+                item_data = {
+                    "name": name,
+                    "color": colorSet,
+                    "page": page,
+                    "position": position,
+                    "changes": [change],
+                    "reason_type": reason_type,
+                    "check_point": check_point,
+                    "original_text": original_text,
+                    "comment": comment,     
+                    "focus": focus,
+                    "reference": reference,
+                    "target_condition": target_condition,
+                }
 
                 if correction["intgr"]:
-                    checkResults[page][0]["items"].append({
-                        "name": name,
-                        "color": colorSet, #"rgba(255, 255, 0, 0.5)", # green background rgba(0, 255, 0, 0.5)
-                        "page": page,
-                        "position": position,
-                        "changes": [change],
-                        "reason_type":correction["reason_type"],
-                        "check_point":correction["check_point"],
-                        "original_text":correction["original_text"],
-                        })
+                    checkResults[page][0]["items"].append(item_data)
                 else:
                         existing_item = any(
                                 item["name"] == name and
@@ -1085,17 +1105,7 @@ def convert_format(filtered_items):
                                 for item in checkResults[page][0]["items"]
                             )
                         if not existing_item:
-                            checkResults[page][0]["items"].append({
-                                "name": name,
-                                "color": colorSet, #"rgba(255, 255, 0, 0.5)", # green background rgba(0, 255, 0, 0.5)
-                                "page": page,
-                                "position": position,
-                                "changes": [change],
-                                "reason_type":correction["reason_type"],
-                                "check_point":correction["check_point"],
-                                "original_text":correction["original_text"],
-                                })
-
+                            checkResults[page][0]["items"].append(item_data)
 
     return {'data': checkResults, 'code': 200}
 
@@ -2240,8 +2250,9 @@ def find_corrections(corrected_text,input_text,pageNumber):
             reason_type = match[1].strip()
             original_text = match[2].strip()
             target_text = match[3].strip()
-
-            comment = f"{reason_type} {original_text} → {target_text}"
+            # change comment content
+            # comment = f"{reason_type} {original_text} → {target_text}"
+            comment = f"{reason_type} {target_text}"
 
             corrections.append({
                 "page": pageNumber,
@@ -2308,7 +2319,9 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
             original_text = match
             target_text = corrected_text_re
             # 「％」表記の統一（半角→全角） -0.09% → -0.09％
-            comment = f"{reason_type} {original_text} → {target_text}"
+            # change comment content
+            # comment = f"{reason_type} {original_text} → {target_text}"
+            comment = f"{reason_type} {target_text}"
 
             corrections.append({
                 "page": pageNumber,
@@ -2329,8 +2342,9 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
             reason_type = "全角を半角統一"
             original_text = match
             target_text = corrected_text_re
-
-            comment = f"{reason_type} {original_text} → {target_text}"
+            # change comment content
+            # comment = f"{reason_type} {original_text} → {target_text}"
+            comment = f"{reason_type} {target_text}"
 
             corrections.append({
                 "page": pageNumber,
@@ -2351,8 +2365,9 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
             reason_type = "削除"
             original_text = match
             target_text = corrected_text_re
-
-            comment = f"{reason_type} {original_text} → {target_text}"
+            # change comment content
+            # comment = f"{reason_type} {original_text} → {target_text}"
+            comment = f"{reason_type} {target_text}"
 
             corrections.append({
                 "page": pageNumber,
@@ -2378,9 +2393,13 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
                             reason_type = "用語の統一"
                             
                             if corrected_text_re == "削除":
-                                comment = f"{original_text} → トルは不要"
+                                # change comment content
+                                # comment = f"{original_text} → トルは不要"
+                                comment = f"トルは不要"
                             else:
-                                comment = f"{original_text} → {corrected_text_re}"
+                                # change comment content
+                                # comment = f"{original_text} → {corrected_text_re}"
+                                comment = f"{corrected_text_re}"
 
                             corrections.append({
                                 "page": pageNumber,
@@ -2400,8 +2419,9 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
                 original_text = k
                 corrected_text_re = v
                 reason_type = "用語の統一"
-
-                comment = f"{reason_type} {original_text} → {corrected_text_re}"
+                # change comment content
+                # comment = f"{reason_type} {original_text} → {corrected_text_re}"
+                comment = f"{reason_type} {corrected_text_re}"
 
                 corrections.append({
                     "page": pageNumber,
@@ -2422,8 +2442,9 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
                 original_text = k  # original_text save to AI
                 corrected_text_re = v  # value(v)を corrected_text_re save to AI（人工知能）
                 reason_type = "用語の統一"
-
-                comment = f"{reason_type} {original_text} → {corrected_text_re}"
+                # change comment content
+                # comment = f"{reason_type} {corrected_text_re}"
+                comment = f"{reason_type} {corrected_text_re}"
 
                 corrections.append({
                     "page": pageNumber,
@@ -2443,7 +2464,9 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
             corrections.append({
                 "page": pageNumber,
                 "original_text": word_result,
-                "comment": f"{word_result} → ", #word_result,
+                # change comment content
+                # "comment": f"{word_result} → ", #word_result,
+                "comment": f"{word_result}",
                 "reason_type": "メッセージの表示",
                 "check_point": word_result,
                 "locations": [],  
@@ -2456,7 +2479,9 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
             corrections.append({
                 "page": pageNumber,
                 "original_text": day_result,
-                "comment": f"{day_result} → {cor_day}",
+                # change comment content
+                # "comment": f"{day_result} → {cor_day}",
+                "comment": f"{cor_day}",
                 "reason_type": "波ダッシュの修正",
                 "check_point": day_result,
                 "locations": [],  
@@ -2469,7 +2494,9 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
             corrections.append({
                 "page": pageNumber,
                 "original_text": score_result,
-                "comment": f"{score_result} → {cor_score}",
+                # change comment content
+                # "comment": f"{score_result} → {cor_score}",
+                "comment": f"{cor_score}",
                 "reason_type": "波ダッシュの修正",
                 "check_point": score_result,
                 "locations": [],  
@@ -2494,7 +2521,9 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
         corrections.append({
             "page": pageNumber,
             "original_text": half_result,
-            "comment": f"{half_result} → {cor_half}",
+            # change comment content
+            # "comment": f"{half_result} → {cor_half}",
+            "comment": f"{cor_half}",
             "reason_type": "日付の修正",
             "check_point": half_result,
             "locations": [],  
@@ -2514,7 +2543,9 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
 
             corrections.append({
                 "check_point": "組入銘柄解説",
-                "comment": f"{old_text} → {new_text}",
+                # change comment content
+                # "comment": f"{old_text} → {new_text}",
+                "comment": f"{new_text}",
                 "intgr": False,
                 "locations": [],
                 "original_text": new_text[:20],
@@ -2548,7 +2579,9 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
         if re.search(r"ました(?!。)(?=[\s 、，。\n]|$)", sentence):
             corrections.append({
                 "check_point": "句点の追加",
-                "comment": f"{sentence_split} → {sentence_split}。",
+                # change comment content
+                # "comment": f"{sentence_split} → {sentence_split}。",
+                "comment": f"{sentence_split}。",
                 "intgr": False,
                 "locations": [],
                 "original_text": sentence_split,
@@ -2574,7 +2607,9 @@ def find_corrections_wording(input_text, pageNumber, tenbrend, fund_type, input_
         # 修正版：「同社が〜ことを示唆した」
         corrected_text_re = f"同社が{match.group(1)}ことを示唆した"
         reason_type = "主語の欠落"
-        comment = f"{reason_type}: {original_text} → {corrected_text_re}"
+        # change comment content
+        # comment = f"{reason_type}: {original_text} → {corrected_text_re}"
+        comment = f"{reason_type}: {corrected_text_re}"
 
         corrections.append({
             "page": pageNumber,
@@ -4296,7 +4331,9 @@ def integrate_enhance():
                         "page": pageNumber,
                         "original_text": get_src(error_data, _content).replace("。○", "").replace("。◯", "").strip().rsplit('\n', 1)[0],
                         "check_point": content,
-                        "comment": f"{error_data} → {reason}",
+                        # change comment content
+                        # "comment": f"{error_data} → {reason}",
+                        "comment": f"{reason}",
                         "reason_type": reason,
                         "locations": [],
                         "intgr": True,
@@ -4306,7 +4343,9 @@ def integrate_enhance():
                     "page": pageNumber,
                     "original_text": get_src(content, _content).replace("。○", "").replace("。◯", "").strip().rsplit('\n', 1)[0],
                     "check_point": content,
-                    "comment": f"{content} → ",
+                    # change comment content
+                    # "comment": f"{content} → ",
+                    "comment": "",
                     "reason_type": "整合性",
                     "locations": [],
                     "intgr": True,
@@ -4337,7 +4376,9 @@ def integrate_enhance():
                     "page": pageNumber,
                     "original_text": content,
                     "check_point": content,
-                    "comment": f"{content} → ",
+                    # change comment content
+                    # "comment": f"{content} → ",
+                    "comment": "",
                     "reason_type": "整合性",
                     "locations": [{"x0": 0, "x1": 0, "y0": 0, "y1": 0}],
                     "intgr": True,
@@ -4523,8 +4564,10 @@ def ruru_ask_gpt():
                         "page": pageNumber,
                         "original_text": re_result,
                         "check_point": re_result,
-                        "comment": f"{re_result} → ", # +0.2% → 0.85% f"{reason} → {corrected}"
-                        "reason_type": "整合性",  
+                        # change comment content
+                        # "comment": f"{re_result} → ", # +0.2% → 0.85% f"{reason} → {corrected}"
+                        "comment": "",
+                        "reason_type": "整合性",
                         "locations": [],
                         "intgr": True,
                     })
@@ -4776,8 +4819,10 @@ def ruru_ask_gpt():
                             "page": pageNumber,
                             "original_text": orgtext,
                             "check_point": input,
-                            "comment": f"{error_data} → {reason}", 
-                            "reason_type":"整合性不正検知", 
+                            # change comment content
+                            # "comment": f"{error_data} → {reason}",
+                            "comment": f"{reason}",
+                            "reason_type":"整合性不正検知",
                             "locations": [],
                             "intgr": True, 
                         })
@@ -4797,7 +4842,9 @@ def ruru_ask_gpt():
                             "page": pageNumber,
                             "original_text": part.strip(),
                             "check_point": input,
-                            "comment": f"{part.strip()} → ",
+                            # change comment content
+                            # "comment": f"{part.strip()} → ",
+                            "comment": "",
                             "reason_type": "整合性",  
                             "locations": [],
                             "intgr": True,
@@ -4819,7 +4866,9 @@ def ruru_ask_gpt():
                 "page": pageNumber,
                 "original_text": input,
                 "check_point": input,
-                "comment": f"{input} → ",
+                # change comment content
+                # "comment": f"{input} → ",
+                "comment": "",
                 "reason_type": "整合性",
                 "locations": [],
                 "intgr": True,
@@ -4972,7 +5021,9 @@ def collect_okurigana_na_issues(input_text: str, pageNumber: int):
         results.append({
             "page": pageNumber,
             "original_text": wrong,
-            "comment": f"{wrong} → {correct}",
+            # change comment content
+            # "comment": f"{wrong} → {correct}",
+            "comment": f"{correct}",
             "reason_type": "送り仮名「な」の欠落",
             "check_point": wrong,
             "locations": [],
@@ -5029,7 +5080,9 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber,
             combine_corrections.append({
                 "page": pageNumber,
                 "original_text": _original_text,
-                "comment": f'{_original_text} → {data["correct"]}',
+                # change comment content
+                # "comment": f'{_original_text} → {data["correct"]}',
+                "comment": f'{data["correct"]}',
                 "reason_type": data["reason"],
                 "check_point": _original_text,
                 "locations": [],
@@ -5043,7 +5096,9 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber,
             combine_corrections.append({
                 "page": pageNumber,
                 "original_text": str(rule_result),
-                "comment": f"{str(rule_result)} → 当月の投資配分",
+                # change comment content
+                # "comment": f"{str(rule_result)} → 当月の投資配分",
+                "comment":"当月の投資配分",
                 "reason_type": "誤字脱字",
                 "check_point": str(rule_result),
                 "locations": [],
@@ -5068,7 +5123,9 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber,
             combine_corrections.append({
                 "page": pageNumber,
                 "original_text": rule1_result,
-                "comment": f"{rule1_result} →  ",
+                # change comment content
+                # "comment": f"{rule1_result} →  ",
+                "comment": "",
                 "reason_type": "削除",
                 "check_point": rule1_result,
                 "locations": [],
@@ -5080,7 +5137,9 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber,
             combine_corrections.append({
                 "page": pageNumber,
                 "original_text": rule3_result,
-                "comment": f"{rule3_result} → {rule3_result[1:]}",
+                # change comment content
+                # "comment": f"{rule3_result} → {rule3_result[1:]}",
+                "comment": f"{rule3_result[1:]}",
                 "reason_type": "削除",
                 "check_point": rule3_result,
                 "locations": [],
@@ -5092,7 +5151,9 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber,
             combine_corrections.append({
                 "page": pageNumber,
                 "original_text": symbol_result,
-                "comment": f"{symbol_result} → され下落し",
+                # change comment content
+                # "comment": f"{symbol_result} → され下落し",
+                "comment": "され下落し",
                 "reason_type": "読点を削除する",
                 "check_point": symbol_result,
                 "locations": [],
@@ -5263,7 +5324,9 @@ def opt_typo():
                     pre_semantic_corrections.append({
                         "page": pageNumber,
                         "original_text": wrong,
-                        "comment": f"{wrong} → {corrected}",
+                        # change comment content
+                        # "comment": f"{wrong} → {corrected}",
+                        "comment": f"{corrected}",
                         "reason_type": reason,
                         "check_point": wrong,
                         "locations": [],
@@ -5978,7 +6041,9 @@ def numeric_sign_consistency(text: str, pageNumber: int):
             pre_corrections.append({
                 "page": pageNumber,
                 "original_text": _original_text,
-                "comment": f'{_original_text} → +{_original_text}',
+                # change comment content
+                # "comment": f'{_original_text} → +{_original_text}',
+                "comment": f'+{_original_text}',
                 "reason_type": "「＋」「−」の明示的統一",
                 "check_point": _original_text,
                 "locations": [],
@@ -6140,7 +6205,9 @@ def get_words(converted_data, fund_type):
     }
     result_data = []
     for data in converted_data:
-        afterChange = data["comment"].split("→")[-1].strip()
+        # change comment content related change
+        # afterChange = data["comment"].split("→")[-1].strip()
+        afterChange = data["comment"].strip()
         beforeChange = data["original_text"].strip()
         if data["reason_type"] not in ["常用外漢字の使用", "新規銘柄", "不自然な空白", "同一表現", "異常な色"]:
             if afterChange == beforeChange:
