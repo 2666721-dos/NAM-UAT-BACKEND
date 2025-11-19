@@ -4809,8 +4809,7 @@ def ruru_ask_gpt():
         return jsonify({
             "success": True,
             "corrections": corrections,  
-            "input": input,
-            "answer": _parsed_data
+            "input": input
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
