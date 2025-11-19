@@ -4527,6 +4527,7 @@ def ruru_ask_gpt():
 
         # 查找相似文本
         input = find_text_in_pdf(pdf_base64, orgtext, pageNumber)
+        _parsed_data = ""
 
         if input:
             dt = [
@@ -4809,7 +4810,8 @@ def ruru_ask_gpt():
         return jsonify({
             "success": True,
             "corrections": corrections,  
-            "input": input
+            "input": input,
+            "answer": _parsed_data
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
