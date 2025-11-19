@@ -2867,7 +2867,7 @@ def _normalize_text(text: str) -> str:
     return text
 
 
-def find_locations_in_pdf(pdf_bytes, corrections):
+def find_locations_in_pdf(pdf_bytes, corrections, input=None):
     """
     最终版（针对日文PDF跨行/断句优化）：
     - 支持「決定しまし\nた」「決定しま\nした」等断行。
@@ -2898,7 +2898,10 @@ def find_locations_in_pdf(pdf_bytes, corrections):
 
     for correction in corrections:
         page_num = correction.get("page", 0)
-        original_text = (correction.get("original_text") or "").strip()
+        if input:
+            original_text = input
+        else:
+            original_text = (correction.get("original_text") or "").strip()
         found_locations = []
 
         if page_num < 0 or page_num >= len(doc):
@@ -4801,7 +4804,7 @@ def ruru_ask_gpt():
             if pdf_base64:
                 try:
                     pdf_bytes = base64.b64decode(pdf_base64)
-                    find_locations_in_pdf(pdf_bytes, corrections)
+                    find_locations_in_pdf(pdf_bytes, corrections, input)
                 except ValueError as e:
                     return jsonify({"success": False, "error": str(e)}), 400
                 except Exception as e:
