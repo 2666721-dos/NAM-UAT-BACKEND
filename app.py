@@ -4528,7 +4528,7 @@ def ruru_ask_gpt():
         # 查找相似文本
         input = find_text_in_pdf(pdf_base64, orgtext, pageNumber)
 
-        if not input:
+        if input:
             dt = [
                 "あなたはテキスト抽出アシスタントです。",
 
