@@ -4484,7 +4484,7 @@ def find_text_in_pdf(pdf_base64_string: str,
                 best_match_page_number = i
 
         # 进行最终校验：相似度和页码必须同时满足条件
-        is_score_sufficient = overall_best_score > similarity_threshold
+        is_score_sufficient = overall_best_score >= similarity_threshold
         is_page_correct = best_match_page_number == target_page_number
 
         if is_score_sufficient and is_page_correct:
