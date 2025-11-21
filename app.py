@@ -1167,7 +1167,7 @@ def handle_menu():
         logging.info(f"Connected to {container_name} container")
         
         # Query exe
-        query = "SELECT * FROM c WHERE CONTAINS(c.id, '.pdf') OR c.upload_type='参照ファイル'"
+        query = "SELECT c.id,c.fileName,c.link,c.readStatus,c.comment_type,c.status,c.upload_type,c.icon,(ARRAY_LENGTH(c.result.corrections) > 0 ? true : false) AS hasCorrections FROM c WHERE CONTAINS(c.id, '.pdf') OR c.upload_type='参照ファイル'"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
         
         # filter result
@@ -1208,7 +1208,7 @@ def handle_menu_all():
         logging.info(f"Connected to {container_name} container")
         
         # Query exe
-        query = "SELECT * FROM c WHERE CONTAINS(c.id, '.pdf') OR c.upload_type='参照ファイル'"
+        query = "SELECT c.id,c.fileName,c.link,c.readStatus,c.comment_type,c.status,c.upload_type,c.icon,(ARRAY_LENGTH(c.result.corrections) > 0 ? true : false) AS hasCorrections FROM c WHERE CONTAINS(c.id, '.pdf') OR c.upload_type = '参照ファイル'"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
         
         # filter result
