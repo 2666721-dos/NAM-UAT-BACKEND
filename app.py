@@ -6026,7 +6026,7 @@ def save_corrections():
         filtered_corrections = []
         for c in final_corrections:
             # 跳过无效坐标项
-            if not is_valid_location(c.get("locations", [])) :
+            if not is_valid_location(c.get("locations", [])) and c.get("reason_type") != "整合性":
                 continue
             filtered_corrections.append(c)
         final_corrections = filtered_corrections
