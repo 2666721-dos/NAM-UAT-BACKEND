@@ -2042,6 +2042,7 @@ def opt_check_eng(content, rules):
     if not isinstance(rules, dict):
         raise TypeError(f"`rules` must be a dict, got {type(rules)}")
     
+    # normalize
     content = merge_brackets(content)
     content = content.replace("(", "（").replace(")", "）")
     lines = content.strip().splitlines()
@@ -2050,6 +2051,19 @@ def opt_check_eng(content, rules):
     seen_full = set()
     results = []
 
+    # ===========================
+    # 新增：严格边界函数（内置）
+    # ===========================
+    def strict_acronym_pattern(raw):
+        """
+        缩写严格边界：前后必须是行首/行尾/空白/标点/括号
+        防止误中 CPI → EC 的情况
+        """
+        before = r"(^|[\s\（\(\[,.;:：、。・])"
+        after  = r"($|[\s\）\)\],.;:：、。・])"
+        return rf"{before}{regcheck.escape(raw)}{after}"
+
+    # main loop
     for line in lines:
         result = []
         normalized_line = line.replace("\n", "").replace(" ", "")
@@ -2058,6 +2072,7 @@ def opt_check_eng(content, rules):
             raw_key = k.replace("(", "（").replace(")", "）")
             full_key = v.replace("(", "（").replace(")", "）")
 
+            # full_key 无括号的规则跳过（保持你原行为）
             if '(' not in full_key and '（' not in full_key:
                 continue
             
@@ -2070,6 +2085,7 @@ def opt_check_eng(content, rules):
             new_k = escaped_k
             paren_pattern = f"{escaped_k}（[^）]+）"
 
+            # ========== 业务特殊 case ==========
             if raw_key.isalpha() or raw_key in ["S&L", "M&A"]:
                 if raw_key == "OPEC":
                     new_k = f"(?<![a-zA-Z]){escaped_k}(?!プラス|[a-zA-Z])"
@@ -2090,31 +2106,49 @@ def opt_check_eng(content, rules):
                 elif raw_key == "商い":
                     new_k = f"(?<!薄){escaped_k}"
                 else:
-                    new_k = f"(?<![a-zA-Z]){escaped_k}(?![a-zA-Z])"
+                    # ===========================
+                    # ⚠ 最小修改：替换这里
+                    # ===========================
+                    new_k = strict_acronym_pattern(raw_key)
+            else:
+                # 非英文缩写也给严格边界（防止 CPI 被误中）
+                new_k = strict_acronym_pattern(raw_key)
 
+            # regex detection
             matched_full = regcheck.search(escaped_v, normalized_line)
             matched_raw_with_paren = regcheck.search(paren_pattern, normalized_line)
             matched_raw = regcheck.search(new_k, normalized_line)
 
-            # ✅ 校验full_key,第一次出现
+            # =====================================================
+            # 必须放在 matched_full 的任何使用之前！
+            # =====================================================
+            if matched_full and matched_raw:
+                continue
+            # =====================================================
+
+            # full_key 第一次出现 → 正确
             if matched_full and full_key not in seen_full:
                 seen_raw.add(raw_key)
                 seen_full.add(full_key)
                 continue
 
-            # ✅ full_key ,第二次出现
+            # full_key 第二次出现 → 删除
             elif matched_full and full_key in seen_full:
                 result.append({full_key: "删除"})
             
+            if matched_full and matched_raw_with_paren:
+                continue
+            # raw_key + 自带括号：替换为 full_key
             elif matched_raw_with_paren:
                 result.append({matched_raw_with_paren.group(): full_key})
                 seen_raw.add(raw_key)
                 seen_full.add(full_key)
 
+            # raw_key（裸字母）第一次出现 → 错误，需要展开
             elif matched_raw and raw_key not in seen_raw:
                 result.append({raw_key: full_key})
                 seen_raw.add(raw_key)
-                seen_full.add(full_key)
+                # ❗保持你原来的行为：不提前 seen_full.add(full_key)
 
         results.append(result)
 
@@ -4716,7 +4750,7 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber,
     combine_corrections = []
     src_corrections = []
 
-    # 来自 opt_typo 的前置修正（如果有）
+    # 处理 opt_typo 的预修正
     if pre_corrections:
         combine_corrections.extend(pre_corrections)
     pre_len = len(combine_corrections)
@@ -5773,6 +5807,8 @@ def opt_wording():
         # 二次プロンプト作成
         dt = [
             "以下の分析結果に基づき、原文中の誤りを抽出してください",
+            "- 文字の全角・半角の違いだけを理由に修正してはいけません。",
+            "- 特に、「％」と「%」の違いは誤りとは見なさず、修正対象から除外してください。",
             "- 出力結果は毎回同じにしてください（**同じ入力に対して結果が変動しないように**してください）。",
             "出力は以下のJSON形式でお願いします:",
             "- [{'original': '[原文中の誤っている部分:]', 'correct': '[誤り部分を正しい部分のテキストに修正:]', 'reason': '[理由:]'}]",
@@ -5820,6 +5856,27 @@ def opt_wording():
                     data_json["parsed_data"] = [
                         p for p in data_json["parsed_data"]
                         if not re.search(punctuation_filter_pattern, p.get("reason", ""))
+                    ]
+                symbol_filter_pattern = r"(％記号を半角%に統一|％を%に統一|全角半角の統一|記号の全角・半角)"
+
+                if "corrections" in data_json and isinstance(data_json["corrections"], list):
+                    before = len(data_json["corrections"])
+                    data_json["corrections"] = [
+                        c for c in data_json["corrections"]
+                        if not re.search(punctuation_filter_pattern, c.get("reason_type", ""))
+                        and not re.search(punctuation_filter_pattern, c.get("reason", ""))
+                        and not re.search(symbol_filter_pattern, c.get("reason_type", ""))
+                        and not re.search(symbol_filter_pattern, c.get("reason", ""))
+                    ]
+                    after = len(data_json["corrections"])
+                    if after < before:
+                        print(f"✂️ Removed {before - after} punctuation / percent-symbol related corrections.")
+                
+                if "parsed_data" in data_json and isinstance(data_json["parsed_data"], list):
+                    data_json["parsed_data"] = [
+                        p for p in data_json["parsed_data"]
+                        if not re.search(punctuation_filter_pattern, p.get("reason", ""))
+                        and not re.search(symbol_filter_pattern, p.get("reason", ""))
                     ]
 
                 # 将过滤后的内容重新 jsonify
