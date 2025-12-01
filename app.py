@@ -4768,6 +4768,8 @@ def opt_common(input, prompt_result, pdf_base64, pageNumber,
     parsed_data = ast.literal_eval(answer)
 
     # --- 保险：过滤 GPT 对「行/行な」系列的改动 ---
+    # 过滤 行く/行なう 系 okurigana —— 规则保持不变
+    # ============================================================
     def _is_okurigana_family(s: str) -> bool:
         return bool(re.search(r"行(?:な)?(?:う|い|って|った|われ|われる|われた|わない|わせる|わせられ|わず|わずに)", s or ""))
 
@@ -5964,7 +5966,8 @@ def get_words(converted_data, fund_type):
             continue
         if fund_type == "public" and filter_words.get(beforeChange):
             continue
-        if re.search(r"現在|詳しくは、|（運用実績、分配金は、|4月のJ-|あります）。|当ファンド|この報告書は、ファンドの運用状|）。|パフォーマンス動向は|当月の投資配分|買い建てし|買い付けしなどをした|贅沢品株の買|などの", afterChange):
+        # 排除半角转全角的corrections，避免误过滤
+        if data["reason_type"] != "半角を全角統一" and re.search(r"現在|詳しくは、|（運用実績、分配金は、|4月のJ-|あります）。|当ファンド|この報告書は、ファンドの運用状|）。|パフォーマンス動向は|当月の投資配分|買い建てし|買い付けしなどをした|贅沢品株の買", afterChange):
             continue
         # 1019 新增过滤规则：如果原文以「す。」「た。」「は、」开头则跳过
         # if re.match(r"^(す。|た。|は、|と、|で、|も、|え、|お、|り、|に、|また、)", beforeChange):
@@ -6081,9 +6084,14 @@ def save_corrections():
             return False
 
         filtered_corrections = []
-        for c in final_corrections:
-            # 跳过无效坐标项
-            if not is_valid_location(c.get("locations", [])) and c.get("reason_type") != "整合性":
+        
+        for i, c in enumerate(final_corrections):
+            reason_type = c.get("reason_type", "")
+            locations = c.get("locations", [])
+            is_valid = is_valid_location(locations)
+          
+            # 过滤条件：坐标无效 AND 不是整合性相关
+            if not is_valid and not reason_type.startswith("整合性"):
                 continue
             filtered_corrections.append(c)
         final_corrections = filtered_corrections
@@ -6788,6 +6796,44 @@ def cosmos_create():
     except Exception as e:
         logging.error(f"❌ 未知错误: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/cosmos_update", methods=["POST"])
+def cosmos_update():
+    data = request.json or {}
+    container_name = data.get("container")
+    item_id = data.get("id")
+    new_status = data.get("Task_Status")
+
+    if not container_name:
+        return jsonify({"success": False, "error": "未提供容器名称（container）"}), 400
+
+    if not item_id:
+        return jsonify({"success": False, "error": "未提供 id"}), 400
+
+    if new_status is None:
+        return jsonify({"success": False, "error": "未提供 Task_Status"}), 400
+
+    try:
+        container = get_db_connection(container_name)
+
+        # 读取原记录
+        try:
+            existing_item = container.read_item(item=item_id, partition_key=item_id)
+        except exceptions.CosmosResourceNotFoundError:
+            return jsonify({"success": False, "error": "记录不存在"}), 404
+
+        # ====== 三项字段更新 ======
+        existing_item["Task_Status"] = new_status
+        existing_item["Update_Time"] = datetime.utcnow().isoformat()
+
+        # 替换更新
+        container.replace_item(item_id, existing_item)
+        return jsonify({"success": True, "updated_id": item_id})
+
+    except Exception as e:
+        logging.error(f"更新错误: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 ####### Azure Cosmos DB Operation END #######
 #10铭柄新追加
 
