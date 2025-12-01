@@ -6715,6 +6715,27 @@ def cosmos_delete():
 
     try:
         container = get_db_connection(container_name)
+        
+        # ------------------------------------------------------------------
+        # 🟢 1. 动态获取容器的分区键定义
+        # ------------------------------------------------------------------
+        try:
+            container_props = container.read()
+            pk_paths = container_props.get('partitionKey', {}).get('paths', [])
+            if pk_paths:
+                # 比如 ['/No'] -> "No"
+                partition_key_name = pk_paths[0].strip('/')
+            else:
+                partition_key_name = "id"
+            
+            logging.info(f"ℹ️ [Delete] 自动识别容器 '{container_name}' 分区键为: {partition_key_name}")
+            
+        except Exception as e:
+            logging.warning(f"⚠️ 无法自动获取分区键定义，降级使用 'id': {e}")
+            partition_key_name = "id"
+        # ------------------------------------------------------------------
+
+        # 2. 查询数据
         items = list(container.query_items(
             query=query,
             enable_cross_partition_query=True
@@ -6725,28 +6746,55 @@ def cosmos_delete():
             return jsonify({"success": True, "deleted": 0, "message": "No items found."})
 
         deleted_count = 0
+        failed_items = []
+
+        # 3. 遍历删除
         for item in items:
+            item_id = item.get("id", "未知ID")
+            
             try:
-                pk_value = item.get(partition_key_field)
+                # 🟢 关键：使用自动获取的字段名来提取值
+                pk_value = item.get(partition_key_name)
+
+                # 检查是否获取到了分区键值
                 if pk_value is None:
-                    logging.warning(f"⚠️ 记录 {item.get('id', '未知ID')} 缺少 partition key 字段 {partition_key_field}，跳过删除。")
+                    # 💡 这是一个常见错误：SQL 语句没查这个字段
+                    error_msg = (f"无法从查询结果中获取分区键 '{partition_key_name}' 的值。 "
+                                 f"请检查你的 SQL 语句是否包含了该字段？(建议使用 SELECT * ...)")
+                    logging.warning(f"⚠️ {item_id}: {error_msg}")
+                    failed_items.append({"id": item_id, "error": error_msg})
                     continue
 
-                container.delete_item(item=item["id"], partition_key=pk_value)
+                # 执行删除
+                container.delete_item(item=item_id, partition_key=pk_value)
                 deleted_count += 1
                 logging.info(f"🗑️ 已删除文档: {item['id']} (partition_key={pk_value})")
 
+            except exceptions.CosmosResourceNotFoundError:
+                # 即使有了自动探测，如果数据本身有问题，还是可能 404
+                error_msg = f"删除时报 404。可能原因：该文档在查询后已被删除，或分区键值发生变化。"
+                logging.error(f"❌ {item_id}: {error_msg}")
+                failed_items.append({"id": item_id, "error": error_msg})
+                continue
+
             except Exception as e:
-                logging.warning(f"⚠️ 删除失败: {item.get('id', '未知ID')} -> {e}")
+                logging.error(f"❌ {item_id}: 删除异常 {e}")
+                failed_items.append({"id": item_id, "error": str(e)})
+                continue
 
-        logging.info(f"✅ Cosmos DB 删除完成，共 {deleted_count} 条。")
-        return jsonify({"success": True, "deleted": deleted_count})
+        # 4. 返回结果
+        response_data = {
+            "success": len(failed_items) == 0,
+            "deleted": deleted_count,
+            "failed_count": len(failed_items),
+            "partition_key_detected": partition_key_name, # 告诉前端我们用了哪个字段当 PK
+            "failed_details": failed_items
+        }
+        
+        return jsonify(response_data), 200
 
-    except exceptions.CosmosHttpResponseError as e:
-        logging.error(f"❌ Cosmos DB 删除错误: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
     except Exception as e:
-        logging.error(f"❌ 未知错误: {e}")
+        logging.error(f"❌ 系统级错误: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -6766,6 +6814,31 @@ def cosmos_create():
 
     try:
         container = get_db_connection(container_name)
+        
+        # ------------------------------------------------------------------
+        # 🟢 1. 动态获取容器的分区键定义
+        # ------------------------------------------------------------------
+        try:
+            # 读取容器属性（发生一次网络请求）
+            container_props = container.read()
+            # 获取分区键路径列表，例如 ['/No'] 或 ['/id']
+            pk_paths = container_props.get('partitionKey', {}).get('paths', [])
+            
+            if pk_paths:
+                # 去掉开头的 '/'，得到字段名，例如 "No"
+                partition_key_name = pk_paths[0].strip('/')
+            else:
+                # 极少情况没有定义 PK，默认回退到 id
+                partition_key_name = "id"
+                
+            logging.info(f"ℹ️ 容器 {container_name} 的分区键是: {partition_key_name}")
+            
+        except Exception as e:
+            logging.warning(f"⚠️ 无法自动获取分区键定义，默认使用 'id': {e}")
+            partition_key_name = "id"
+
+        # ------------------------------------------------------------------
+        
         inserted_count = 0
 
         for entry in data_list:
@@ -6773,7 +6846,7 @@ def cosmos_create():
                 logging.warning("⚠️ 非法条目（非dict），跳过。")
                 continue
 
-            # ✅ file_id 生成逻辑调整
+            # 2. 生成 ID (保持你原有的逻辑)
             if container_name in ["private_Fund", "public_Fund", "checked_pdf"]:
                 file_id = entry.get("id") or entry.get("fileName") or str(uuid.uuid4())
             else:
@@ -6782,6 +6855,17 @@ def cosmos_create():
             item = dict(entry)
             item["id"] = file_id
             item["updateTime"] = datetime.utcnow().isoformat()
+
+            # --------------------------------------------------------------
+            # 🟢 3. 自动填充缺失的分区键
+            # --------------------------------------------------------------
+            # 逻辑：如果数据里没有这个字段，就用 id 的值填充
+            if partition_key_name not in item:
+                # 只有当分区键字段不存在，或者值为None/空时才填充
+                # 如果是 system key 如 "/id"，这里也不会覆盖
+                item[partition_key_name] = file_id
+                logging.info(f"🔧 自动补全分区键: {partition_key_name}={file_id}")
+            # --------------------------------------------------------------
 
             container.create_item(body=item)
             inserted_count += 1
@@ -9335,6 +9419,188 @@ def handle_sheet_plus_si5(pdf_url, fcode, sheetname, fund_type, container, filen
 
     except Exception as e:
         return f"❌ handle_sheet_plussi5 error: {str(e)}"
+
+
+@app.route('/api/call_openai_with_global_lock_function_call', methods=['POST'])
+def call_openai_with_global_lock_function_call():
+    """ 
+    通过 Cosmos DB 的全局锁机制严格控制并发，确保同一时间只有一个 OpenAI 调用在执行。
+    此版本支持：
+    - 纯 JSON 调用
+    - multipart/form-data 文件上传
+    - 自动识别 messages 类型（字符串 or list）
+    """
+    # ✅ 自动兼容 JSON 与 multipart/form-data
+    data = request.get_json(silent=True)
+    if data is None:
+        data = request.form.to_dict()
+        file = request.files.get("image_bytes")
+        if file:
+            data["image_bytes"] = file.read()
+
+    # ✅ 自动解析 messages
+    messages = data.get("messages", [])
+    functions = data.get("functions", [])
+    function_call = data.get("function_call", [])
+    if isinstance(messages, str):
+        try:
+            # 尝试将字符串解析为 JSON 数组
+            messages = json.loads(messages)
+        except Exception:
+            # 如果不是合法 JSON，包装成一个用户消息
+            messages = [{"role": "user", "content": messages}]
+
+    image_bytes = data.get("image_bytes", None)
+
+    try:
+        # ✅ 调用原逻辑
+        response = openai_with_global_lock_function_call(
+            messages=messages,
+            image_bytes=image_bytes,
+            functions=functions,
+            function_call=function_call
+        )
+        return jsonify(response), 200
+    except Exception as e:
+        logging.error(f"OpenAI Lock Error: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+def openai_with_global_lock_function_call(
+    messages: List[dict],
+    image_bytes: Optional[bytes] = None,
+    functions: Optional[List[dict]] = None,
+    function_call: Optional[dict] = None
+) -> dict:
+    """
+    通过 Cosmos DB 的全局锁机制严格控制并发，确保同一时间只有一个 OpenAI 调用在执行。
+    此版本支持可选的、格式为PNG的内存中图片输入，以用于多模态模型。
+
+    Args:
+        messages (list): 要发送给 OpenAI API 的消息列表。
+        image_bytes (Optional[bytes]): 可选的、在内存中的 PNG 图片二进制数据。
+
+    Returns:
+        dict: OpenAI API 的成功响应。
+
+    Raises:
+        Exception: 如果 OpenAI 调用失败或发生其他严重错误。
+    """
+    # --- 全局锁配置常量 ---
+    LOCK_CONTAINER_NAME = "openai_global_lock"
+    LOCK_DOCUMENT_ID = "master_lock"
+    RETRY_INTERVAL_SECONDS = 5
+    PROCESSING_TIMEOUT_MINUTES = 3
+
+    client_real = CosmosClient("https://nricosmosdb1.documents.azure.com:443/", credential=credential)
+    database_real = client_real.get_database_client("file_db")
+    lock_container = database_real.get_container_client(LOCK_CONTAINER_NAME)
+    lock_acquired = False
+    token = token_cache.get_token()
+    openai.api_key = token
+    
+    # 1. 循环尝试获取全局锁
+    while not lock_acquired:
+        try:
+            lock_doc = lock_container.read_item(item=LOCK_DOCUMENT_ID, partition_key=LOCK_DOCUMENT_ID)
+
+            if lock_doc['status'] == 'busy':
+                timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=PROCESSING_TIMEOUT_MINUTES)
+                locked_at_time = datetime.fromisoformat(lock_doc['locked_at'])
+                if locked_at_time < timeout_threshold:
+                    print("检测到全局锁超时，强制释放...")
+                    lock_doc['status'] = 'available'
+                    lock_doc['locked_at'] = None
+                    lock_doc['occupied_by'] = None
+                    try:
+                        lock_container.replace_item(item=lock_doc, body=lock_doc)
+                        print("全局锁已被成功释放。")
+                        lock_doc = lock_container.read_item(item=LOCK_DOCUMENT_ID, partition_key=LOCK_DOCUMENT_ID)
+                    except CosmosHttpResponseError as e:
+                        if e.status_code == 412:
+                            print("释放锁时发生并发冲突，由其他进程接管。")
+                        else:
+                            raise
+            
+            if lock_doc['status'] == 'available':
+                lock_doc['status'] = 'busy'
+                lock_doc['locked_at'] = datetime.now(timezone.utc).isoformat()
+                # fetch dev environment and assign to occupied_by
+                lock_doc['occupied_by'] = os.environ.get("ACCOUNT_URL", "unknown")
+                lock_container.replace_item(item=lock_doc, body=lock_doc)
+                lock_acquired = True
+                print("成功获取全局锁。")
+
+            else:
+                print(f"全局锁被占用，将在 {RETRY_INTERVAL_SECONDS} 秒后重试...")
+                time.sleep(RETRY_INTERVAL_SECONDS)
+
+        except CosmosHttpResponseError as e:
+            if e.status_code == 412:
+                print("获取锁时发生并发冲突，立即重试...")
+                time.sleep(random.uniform(0.1, 0.5))
+                continue
+            else:
+                print(f"数据库操作失败，状态码: {e.status_code}")
+                raise
+        except Exception as e:
+            print(f"获取锁时发生未知错误: {e}")
+            time.sleep(RETRY_INTERVAL_SECONDS)
+            continue
+
+    # 2. 成功获取锁后，准备并执行 OpenAI 调用
+    try:
+        if image_bytes:
+            print("检测到图片输入，正在准备多模态消息...")
+            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+            user_prompt_text = messages[-1]['content']
+            
+            vision_message_content = [
+                {
+                    "type": "text",
+                    "text": user_prompt_text
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        # --- 修改点：在这里将图片格式硬编码为 'png' ---
+                        "url": f"data:image/png;base64,{base64_image}"
+                    }
+                }
+            ]
+            messages[-1]['content'] = vision_message_content
+
+        print("正在调用 Azure OpenAI API...")
+        
+        response = openai.ChatCompletion.create(
+            deployment_id=deployment_id,
+            messages=messages,
+            max_tokens=MAX_TOKENS,
+            temperature=TEMPERATURE,
+            functions=functions,
+            function_call=function_call, 
+            seed=SEED
+        )
+        print("OpenAI API 调用成功。")
+        return response.to_dict()
+
+    except Exception as e:
+        print(f"OpenAI API 调用失败: {e}")
+        raise e
+
+    finally:
+        # 3. (关键) 无论成功或失败，都必须释放锁
+        if lock_acquired:
+            try:
+                lock_doc_to_release = lock_container.read_item(item=LOCK_DOCUMENT_ID, partition_key=LOCK_DOCUMENT_ID)
+                lock_doc_to_release['status'] = 'available'
+                lock_doc_to_release['locked_at'] = None
+                lock_doc_to_release['occupied_by'] = None
+                lock_container.replace_item(item=lock_doc_to_release, body=lock_doc_to_release)
+                print("全局锁已被成功释放。")
+            except Exception as e:
+                print(f"警告：释放全局锁失败: {e}。该锁将在下次超时检查时被强制释放。")
+
 
 
 app = WsgiToAsgi(app)
