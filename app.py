@@ -6886,7 +6886,9 @@ def cosmos_update():
     data = request.json or {}
     container_name = data.get("container")
     item_id = data.get("id")
-    new_status = data.get("Task_Status")
+    new_status = data.get("status")
+    finish_time = data.get("finish_time", None)  # 下载文件表中的结束处理时间字段
+    update_time = data.get("update_time", None)  # 任务表中的开始处理时间
 
     if not container_name:
         return jsonify({"success": False, "error": "未提供容器名称（container）"}), 400
@@ -6894,8 +6896,8 @@ def cosmos_update():
     if not item_id:
         return jsonify({"success": False, "error": "未提供 id"}), 400
 
-    if new_status is None:
-        return jsonify({"success": False, "error": "未提供 Task_Status"}), 400
+    if not new_status:
+        return jsonify({"success": False, "error": "未提供 status"}), 400
 
     try:
         container = get_db_connection(container_name)
@@ -6906,10 +6908,18 @@ def cosmos_update():
         except exceptions.CosmosResourceNotFoundError:
             return jsonify({"success": False, "error": "记录不存在"}), 404
 
-        # ====== 三项字段更新 ======
-        existing_item["Task_Status"] = new_status
-        existing_item["Update_Time"] = datetime.utcnow().isoformat()
+        existing_item["Status"] = new_status
 
+        # ===== finish_time（可选字段） =====
+        # 如果请求体有传进来，则写入，如果没有则不更新
+        if finish_time is not None:
+            existing_item["finish_time"] = finish_time
+
+        # ===== update_time（可选字段） =====
+        # 如果请求体有传进来，则写入，如果没有则不更新
+        if update_time is not None:
+            existing_item["update_time"] = update_time
+        
         # 替换更新
         container.replace_item(item_id, existing_item)
         return jsonify({"success": True, "updated_id": item_id})
