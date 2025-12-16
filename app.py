@@ -193,7 +193,7 @@ def get_db_connection(CONTAINER):
     return container  # Cosmos DB
 
 #-----------------------------------------------------------------
-LOG_RECORD_CONTAINER_NAME = "log_record"
+LOG_RECORD_CONTAINER_NAME = "task_queue"
 FILE_MONITOR_ITEM = "file_monitor_item"
 TENBREND_CONTAINER_NAME = 'tenbrend_history'
 PROXYINFO_CONTAINER_NAME = 'proxyInfo'
@@ -1036,11 +1036,9 @@ def convert_format(filtered_items):
     checkResults = {}
 
     for correction in filtered_items.get("result", {}).get("corrections", []):
-        page = correction["page"] + 1
-        position = {}
-        colorSet = "rgb(172 228 230)"
+        page = correction.get("page", 0) + 1
+        colorSet = "rgba(255,255,0,0.5)"
 
-        # ⭐ 最小化修改：新增字段全部改为 get()
         original_text = correction.get("original_text", "")
         comment = correction.get("comment", "")
         focus = correction.get("focus", "")
@@ -1048,70 +1046,54 @@ def convert_format(filtered_items):
         target_condition = correction.get("target_condition", "")
         reason_type = correction.get("reason_type", "")
         check_point = correction.get("check_point", "")
-        after_text = comment.split("→")[-1].strip() if comment else ""
+
+        # after: comment 中最后一个 → 后面的内容
+        after_text = ""
+        if "→" in comment:
+            after_text = comment.split("→")[-1].strip()
+        else:
+            after_text = comment.strip()
 
         change = {
             "before": original_text,
             "after": after_text,
         }
-        if correction["intgr"]:
+
+        # 名称（不一致 or 空）
+        if correction.get("intgr"):
             name = "不一致"
             colorSet = "rgba(172, 228, 230, 0.5)"
         else:
             name = ""
-            colorSet= "rgba(255, 255, 0, 0.5)"
 
-        if correction["locations"]:
-            # for idx, loc in enumerate(correction["locations"]): 
-            # checkResults
-            if page not in checkResults:
-                checkResults[page] = [{"title": filtered_items["fileName"], "items": []}]
+        # 初始化 page
+        if page not in checkResults:
+            checkResults[page] = [{"title": filtered_items.get("fileName", ""), "items": []}]
 
-            # loc = correction["locations"][0]
-            for loc in correction["locations"]:
-                pdf_height = loc.get("pdf_height", 792)  # PDF height (Default: A4 , 792pt)
+        item_data = {
+            "name": name,
+            "color": colorSet,
+            "page": page,
+            "changes": [change],
+            "reason_type": reason_type,
+            "check_point": check_point,
+            "original_text": original_text,
+            "comment": comment,
+            "focus": focus,
+            "reference": reference,
+            "target_condition": target_condition,
+        }
 
-                # x = loc["x0"] - 22 if idx == 0 else loc["x0"]
-                position = {
-                    "x": loc["x0"],
-                    "y": pdf_height - loc["y1"] + 50,
-                    "width": loc["x1"] - loc["x0"],
-                    "height": loc["y1"] - loc["y0"],
-                }
-                item_data = {
-                    "name": name,
-                    "color": colorSet,
-                    "page": page,
-                    "position": position,
-                    "changes": [change],
-                    "reason_type": reason_type,
-                    "check_point": check_point,
-                    "original_text": original_text,
-                    "comment": comment,     
-                    "focus": focus,
-                    "reference": reference,
-                    "target_condition": target_condition,
-                }
+        checkResults[page][0]["items"].append(item_data)
+    log_data = filtered_items.get("log", [])
 
-                if correction["intgr"]:
-                    checkResults[page][0]["items"].append(item_data)
-                else:
-                        existing_item = any(
-                                item["name"] == name and
-                                item["changes"] == [change] and
-                                item["position"] == position
-                                for item in checkResults[page][0]["items"]
-                            )
-                        if not existing_item:
-                            checkResults[page][0]["items"].append(item_data)
-
-    return {'data': checkResults, 'code': 200}
+    return {"data": checkResults,"log": log_data,"code": 200}
 
 # public_Fund and check-results
 @app.route('/api/check_results', methods=['POST'])
 def handle_check_results():
     fund_type = request.json.get('type')
-    if fund_type not in ['public', 'private']:
+    if fund_type not in ['public', 'private','common']:
         return jsonify({"error": "Invalid fund type"}), 400
     
     selected_id = request.json.get('selectedId')
@@ -1154,37 +1136,54 @@ def handle_menu():
 
     if fund_type not in ['public', 'private']:
         return jsonify({"error": "Invalid fund type"}), 400
+    # 公募和私募容器（依赖 fund_type）
+    fund_container_name = f"{fund_type}_Fund"
+    # 共通チェック対象 和 共通最終版
+    common_container_name = ["common_Fund", "final_common_Fund"]
+    # 查询字段
+    base_fields = (
+        "c.id, c.fileName, c.link, c.readStatus, "
+        "c.comment_type, c.status, c.upload_type, c.icon"
+    )
+    extra_field = ", (ARRAY_LENGTH(c.result.corrections) > 0 ? true : false) AS hasCorrections"
+    # fund_type 属于 public/private → 需要 hasCorrections
+    main_select_fields = base_fields + extra_field
+    # 共通チェック対象和共通最終版只需要 base_fields
+    common_select_fields = base_fields
 
-    # container name Setting
-    container_name = f"{fund_type}_Fund"
-
-    
+    # 最终数据
+    all_items = []
     try:
-        # Cosmos DB 连接
-        container = get_db_connection(container_name)
-        logging.info(f"Connected to {container_name} container")
-        
-        # Query exe
-        query = "SELECT c.id,c.fileName,c.link,c.readStatus,c.comment_type,c.status,c.upload_type,c.icon,(ARRAY_LENGTH(c.result.corrections) > 0 ? true : false) AS hasCorrections FROM c WHERE CONTAINS(c.id, '.pdf') OR c.upload_type='参照ファイル'"
-        items = list(container.query_items(query=query, enable_cross_partition_query=True))
-        
-        # filter result
-        filtered_items = [item for item in items if item and item.get('id')]
+        # 查询公募和私募容器
+        main_container = get_db_connection(fund_container_name)
+        logging.info(f"Connected to {fund_container_name}")
 
-        # pagenations
-        total = len(filtered_items)
+        main_query = f"SELECT {main_select_fields} FROM c "
+        main_items = list(main_container.query_items(main_query, enable_cross_partition_query=True))
+        all_items.extend([item for item in main_items if item.get("id")])
+
+        # 查询 common & final_common 容器
+        for cname in common_container_name:
+            container = get_db_connection(cname)
+            logging.info(f"Connected to {cname}")
+
+            query = f"SELECT {common_select_fields} FROM c "
+            items = list(container.query_items(query, enable_cross_partition_query=True))
+            all_items.extend([item for item in items if item.get("id")])
+
+        # 7️⃣ 分页
+        total = len(all_items)
         start = (page - 1) * page_size
         end = start + page_size
-        paged_items = filtered_items[start:end]
+        paged_items = all_items[start:end]
 
-        response = {
+        # 返回合并后的数据
+        return jsonify({
             "code": 200,
             "data": paged_items,
             "total": total
-        }
+        })
 
-        return jsonify(response)
-        
     except Exception as e:
         logging.error(f"Database error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
@@ -1193,31 +1192,49 @@ def handle_menu():
 def handle_menu_all():
     # param check
     fund_type = request.json.get('type')
-
     if fund_type not in ['public', 'private']:
         return jsonify({"error": "Invalid fund type"}), 400
+    # 公募和私募容器（依赖 fund_type）
+    fund_container_name = f"{fund_type}_Fund"
+    # 共通チェック対象 和 共通最終版
+    common_container_name = ["common_Fund", "final_common_Fund"]
+    # 查询字段
+    base_fields = (
+        "c.id, c.fileName, c.link, c.readStatus, "
+        "c.comment_type, c.status, c.upload_type, c.icon"
+    )
+    extra_field = ", (ARRAY_LENGTH(c.result.corrections) > 0 ? true : false) AS hasCorrections"
+    # fund_type 属于 public/private → 需要 hasCorrections
+    main_select_fields = base_fields + extra_field
+    # 共通チェック対象和共通最終版只需要 base_fields
+    common_select_fields = base_fields
 
-    # container name Setting
-    container_name = f"{fund_type}_Fund"
-    
+    results = []
     try:
-        # Cosmos DB 连接
-        container = get_db_connection(container_name)
-        logging.info(f"Connected to {container_name} container")
-        
-        # Query exe
-        query = "SELECT c.id,c.fileName,c.link,c.readStatus,c.comment_type,c.status,c.upload_type,c.icon,(ARRAY_LENGTH(c.result.corrections) > 0 ? true : false) AS hasCorrections FROM c WHERE CONTAINS(c.id, '.pdf') OR c.upload_type = '参照ファイル'"
-        items = list(container.query_items(query=query, enable_cross_partition_query=True))
-        
-        # filter result
-        filtered_items = [item for item in items if item and item.get('id')]
-        response = {
-        "code": 200,
-        "data": filtered_items
-        }
+        # 5️⃣ 查询公募和私募容器
+        main_container = get_db_connection(fund_container_name)
+        logging.info(f"Connected to {fund_container_name}")
 
-        return jsonify(response)
-        
+        main_query = f"SELECT {main_select_fields} FROM c "
+        main_items = list(main_container.query_items(
+            query=main_query, enable_cross_partition_query=True
+        ))
+        results.extend([i for i in main_items if i.get('id')])
+
+        # 6️⃣ 查询 common & final_common 容器
+        for cname in common_container_name:
+            container = get_db_connection(cname)
+            logging.info(f"Connected to {cname}")
+
+            query = f"SELECT {common_select_fields} FROM c "
+            items = list(container.query_items(
+                query=query, enable_cross_partition_query=True
+            ))
+            results.extend([i for i in items if i.get('id')])
+
+        # 7️⃣ 返回合并后的数据
+        return jsonify({"code": 200, "data": results})
+
     except Exception as e:
         logging.error(f"Database error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
@@ -1316,16 +1333,24 @@ def update_read_status():
     if not selected_id:
         return jsonify({"error": "selectedId is required"}), 400
 
-    mark = request.json.get('mark')
-    if mark not in ['read', 'unread']:
-        return jsonify({"error": "Invalid mark value"}), 400
-
     fund_type = request.json.get('type')
     if fund_type not in ['public', 'private']:
         return jsonify({"error": "Invalid fund type"}), 400
 
-    # container name Setting
-    container_name = f"{fund_type}_Fund"
+    upload_type = request.json.get('uploadType')
+    common_type = request.json.get('commonType')
+    if common_type == "共通コメントファイル" and upload_type == "チェック対象":
+        container_name = "common_Fund"
+    elif common_type == "共通コメントファイル" and upload_type == "最終版":
+        container_name = "final_common_Fund"
+    else:
+        # container name Setting
+        container_name = f"{fund_type}_Fund"
+
+    mark = request.json.get('mark')
+    if mark not in ['read', 'unread']:
+        return jsonify({"error": "Invalid mark value"}), 400
+
     
     try:
         # Cosmos DB 连接
@@ -1355,7 +1380,6 @@ def update_read_status():
     except Exception as e:
         logging.error(f"Unexpected error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
-
 
 @app.route("/api/health")
 def health_check():
@@ -3128,17 +3152,16 @@ def download_checked_pdf():
     try:
         data = request.json
         fund_type = data.get("fund_type", "public_Fund")
+        fundType = fund_type.replace("_Fund", "")
         file_name = data.get("file_name")
-        root, ext = os.path.splitext(file_name)
-        if ext.lower() == ".pdf":
-            file_name = root + "_checked" + ext
+        CHECKED_PDF_CONTAINER = fund_type
         container = get_db_connection(CHECKED_PDF_CONTAINER)
 
-        query = f"SELECT * FROM c WHERE c.fileName = '{file_name}' AND c.fundType = '{fund_type}'"
+        query = f"SELECT c.pdf_checked_link FROM c WHERE c.fileName = '{file_name}' AND c.fundType = '{fundType}'"
         items = list(container.query_items(query=query, enable_cross_partition_query=True))
         if items:
-            link_url = items[0].get("link_url")
-            return jsonify({"success": True, "status": True, "link_url": link_url}), 200
+            pdf_link_url = items[0].get("pdf_checked_link")
+            return jsonify({"success": True, "status": True, "link_url": pdf_link_url}), 200
         else:
             return jsonify({"success": False, "status": False, "MSG": "PDF files are not exists"}), 404
     except Exception as e:
@@ -4030,56 +4053,87 @@ def save_local_link():
 @app.route('/api/log_operate')
 def get_log():
     try:
-        # 1)  page=1, size=15
+        # 获取分页参数
         page = int(request.args.get('page', 1))
         size = int(request.args.get('size', 15))
-        file_name = request.args.get('fileName', "")
-        log_controller = get_db_connection(LOG_RECORD_CONTAINER_NAME)
         offset = (page - 1) * size
-        if file_name:
-            file_query = f"SELECT * FROM c WHERE CONTAINS(c.fileName, '{file_name}') OFFSET {offset} LIMIT {size}"
-            total_file = list(log_controller.query_items(
-                query=file_query,
-                enable_cross_partition_query=True
-            ))
-            name_count = f"SELECT VALUE COUNT(1) FROM c WHERE CONTAINS(c.fileName, '{file_name}')"
-            count_result = list(log_controller.query_items(
-                query=name_count,
-                enable_cross_partition_query=True
-            ))[0]
-            return jsonify({
-                "success": True,
-                "data": total_file,
-                "total": count_result
+        
+        # 获取筛选参数
+        task_payload = request.args.get('fileName', "")  # 文件名搜索
+        fund_type = request.args.get('fundType', "")     # 募集形態
+        task_type = request.args.get('taskType', "")     # 任务类别  
+        task_status = request.args.get('status', "")     # 状态
 
-            }), 200
-        count_query = "SELECT VALUE COUNT(1) FROM c"
-        total_count = list(log_controller.query_items(
-            query=count_query,
+        log_controller = get_db_connection(LOG_RECORD_CONTAINER_NAME)
+
+        # 构建WHERE条件
+        where_conditions = []
+        
+        # 文件名搜索条件
+        if task_payload:
+            where_conditions.append(f"CONTAINS(c.Task_Payload, '{task_payload}')")
+        
+        # 募集形態筛选
+        if fund_type:
+            where_conditions.append(f"c.Fund_Type = '{fund_type}'")
+        
+        # 任务类别筛选
+        if task_type:
+            where_conditions.append(f"c.Task_Type = '{task_type}'")
+        
+        # 状态筛选
+        if task_status:
+            where_conditions.append(f"c.Task_Status = '{task_status}'")
+
+        # 组合WHERE子句
+        where_clause = ""
+        if where_conditions:
+            where_clause = "WHERE " + " AND ".join(where_conditions)
+
+        # 统计总数
+        count_sql = f"""
+        SELECT VALUE COUNT(1) 
+        FROM c 
+        {where_clause}
+        """
+
+        total = list(log_controller.query_items(
+            query=count_sql,
             enable_cross_partition_query=True
         ))[0]
 
-        query = f"""
-                SELECT * FROM c
-                ORDER BY c.created_at DESC
-                OFFSET {offset} LIMIT {size}
-                """
-        log_data = list(log_controller.query_items(
-            query=query,
+        # 分页查询数据
+        query_sql = f"""
+        SELECT * FROM c
+        {where_clause}
+        ORDER BY c.updateTime DESC
+        OFFSET {offset} LIMIT {size}
+        """
+
+        data = list(log_controller.query_items(
+            query=query_sql,
             enable_cross_partition_query=True
         ))
 
-        log_map = list(map(lambda y: dict(filter(lambda x: x[1] and not x[0].startswith("_"), y.items())), log_data))
+        # 过滤系统字段
+        filtered = [
+            {k: v for k, v in x.items() if not k.startswith("_")}
+            for x in data
+        ]
+
+        # 调试日志
+        print(f"🔍 筛选条件: fundType={fund_type}, taskType={task_type}, status={task_status}, fileName={task_payload}")
+        print(f"🔍 SQL查询: {query_sql}")
+        print(f"🔍 返回数据量: {len(filtered)}, 总数: {total}")
 
         return jsonify({
             "success": True,
-            "data": log_map,
-            "total": total_count
+            "data": filtered,
+            "total": total
         }), 200
-    
-        # return jsonify({"success": True, "data": log_map}), 200
 
     except Exception as e:
+        print(f"❌ API错误: {str(e)}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/check_file', methods=['POST'])
@@ -6172,34 +6226,6 @@ def save_corrections():
         logging.error(f"Server error: {str(e)}")
         return jsonify({"success": False, "error": "Server error"}), 500
     
-@app.after_request
-def after_request(response):
-    try:
-        data = request.json
-        error_text = ""
-        file_name = data.get("file_name", "")
-        log_controller = get_db_connection(LOG_RECORD_CONTAINER_NAME)
-        response_json = json.loads(response.get_data(as_text=True))
-        if response.status_code > 200:
-            response_json = json.loads(response.get_data(as_text=True))
-            error_text = response_json.get("error", "")
-        if file_name:
-            if re.search(r"save_corrections|write_upload_save", request.path) or (
-                    "check_file" in request.path and response_json.get("success", False)):
-                log_info = {
-                    "id": str(uuid.uuid4()),
-                    "fileName": file_name,
-                    "path": request.path,
-                    "ip_address": request.remote_addr,
-                    "result": "NG" if response.status_code > 200 else "OK",
-                    "error_text": error_text,
-                    "created_at": datetime.now(UTC).isoformat(),
-                }
-                log_controller.upsert_item(log_info)
-
-    finally:
-        return response
-    
 @app.route('/api/call_openai_with_global_lock', methods=['POST'])
 def call_openai_with_global_lock():
     """ 
@@ -6867,7 +6893,7 @@ def cosmos_create():
                 logging.info(f"🔧 自动补全分区键: {partition_key_name}={file_id}")
             # --------------------------------------------------------------
 
-            container.create_item(body=item)
+            container.upsert_item(body=item)
             inserted_count += 1
             logging.info(f"✅ 插入成功: {file_id}")
 
@@ -6885,48 +6911,90 @@ def cosmos_create():
 def cosmos_update():
     data = request.json or {}
     container_name = data.get("container")
-    item_id = data.get("id")
-    new_status = data.get("status")
-    finish_time = data.get("finish_time", None)  # 下载文件表中的结束处理时间字段
-    update_time = data.get("update_time", None)  # 任务表中的开始处理时间
+    item_id = data.get("id")  # 作为分区键值 & id
+    update_fields = data.get("update_fields", {})  # 传入要更新的字段 dict
 
+    # =====================================================
+    # 1️⃣ 参数检查
+    # =====================================================
     if not container_name:
-        return jsonify({"success": False, "error": "未提供容器名称（container）"}), 400
+        return jsonify({"success": False, "error": "缺少容器名称 container"}), 400
 
     if not item_id:
-        return jsonify({"success": False, "error": "未提供 id"}), 400
+        return jsonify({"success": False, "error": "缺少 id"}), 400
 
-    if not new_status:
-        return jsonify({"success": False, "error": "未提供 status"}), 400
+    if not isinstance(update_fields, dict) or not update_fields:
+        return jsonify({"success": False, "error": "缺少 update_fields 或格式错误"}), 400
 
     try:
         container = get_db_connection(container_name)
 
-        # 读取原记录
+        # =====================================================
+        # 2️⃣ 获取 partitionKey（始终单列）
+        # =====================================================
         try:
-            existing_item = container.read_item(item=item_id, partition_key=item_id)
+            props = container.read()
+            pk_paths = props.get("partitionKey", {}).get("paths", [])
+            partition_key = pk_paths[0].lstrip("/") if pk_paths else "id"
+        except Exception:
+            partition_key = "id"
+
+        logging.info(f"📌 使用分区键字段：{partition_key}")
+
+        # =====================================================
+        # 3️⃣ 读取数据库中已有记录
+        # =====================================================
+        try:
+            existing_item = container.read_item(
+                item=item_id,
+                partition_key=item_id
+            )
         except exceptions.CosmosResourceNotFoundError:
             return jsonify({"success": False, "error": "记录不存在"}), 404
 
-        existing_item["Status"] = new_status
+        # =====================================================
+        # 4️⃣ 更新字段（仅更新存在于数据库文档中的字段）
+        # =====================================================
+        for key, value in update_fields.items():
 
-        # ===== finish_time（可选字段） =====
-        # 如果请求体有传进来，则写入，如果没有则不更新
-        if finish_time is not None:
-            existing_item["finish_time"] = finish_time
+            # 跳过分区键本身
+            if key == partition_key:
+                continue
 
-        # ===== update_time（可选字段） =====
-        # 如果请求体有传进来，则写入，如果没有则不更新
-        if update_time is not None:
-            existing_item["update_time"] = update_time
-        
-        # 替换更新
-        container.replace_item(item_id, existing_item)
-        return jsonify({"success": True, "updated_id": item_id})
+            # 数据库中没有这个字段 → 跳过
+            if key not in existing_item:
+                logging.info(f"🔹 记录字段中无此列，跳过更新：{key}")
+                continue
+
+            # if value is None → 跳过
+            if value is None:
+                logging.info(f"🔸 字段 {key} 值为 None，跳过")
+                continue
+
+            # 更新字段
+            existing_item[key] = value
+            logging.info(f"✏️ 更新字段 {key} = {value}")
+
+        # =====================================================
+        # 5️⃣ 写回 Cosmos DB
+        # =====================================================
+        container.replace_item(
+            item=existing_item["id"],
+            body=existing_item
+        )
+
+        # =====================================================
+        # 6️⃣ 返回更新结果
+        # =====================================================
+        return jsonify({
+            "success": True,
+            "updated_id": item_id
+        })
 
     except Exception as e:
-        logging.error(f"更新错误: {e}")
+        logging.error(f"❌ 更新错误: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
 
 ####### Azure Cosmos DB Operation END #######
 #10铭柄新追加
