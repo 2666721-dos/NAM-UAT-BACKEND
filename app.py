@@ -4106,7 +4106,7 @@ def get_log():
         query_sql = f"""
         SELECT * FROM c
         {where_clause}
-        ORDER BY c.updateTime DESC
+        ORDER BY c.Create_Time DESC
         OFFSET {offset} LIMIT {size}
         """
 
