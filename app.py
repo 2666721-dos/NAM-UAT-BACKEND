@@ -1139,18 +1139,25 @@ def handle_menu():
     # 公募和私募容器（依赖 fund_type）
     fund_container_name = f"{fund_type}_Fund"
     # 共通チェック対象 和 共通最終版
-    common_container_name = ["common_Fund", "final_common_Fund"]
+    common_container_name = ["common_Fund"]
+    final_common_container_name = ["final_common_Fund"]
     # 查询字段
     base_fields = (
         "c.id, c.fileName, c.link, c.readStatus, "
         "c.comment_type, c.status, c.upload_type, c.icon"
     )
-    extra_field = ", (ARRAY_LENGTH(c.result.corrections) > 0 ? true : false) AS hasCorrections"
+    extra_field = (
+        ", ("
+        "IS_DEFINED(c.result) "
+        "AND IS_DEFINED(c.result.corrections) "
+        "AND ARRAY_LENGTH(c.result.corrections) > 0"
+        ") AS hasCorrections"
+    )
     # fund_type 属于 public/private → 需要 hasCorrections
     main_select_fields = base_fields + extra_field
-    # 共通チェック対象和共通最終版只需要 base_fields
-    common_select_fields = base_fields
-
+    common_select_fields = base_fields + extra_field
+    # 共通最終版只需要 base_fields
+    final_common_select_fields = base_fields
     # 最终数据
     all_items = []
     try:
@@ -1158,7 +1165,7 @@ def handle_menu():
         main_container = get_db_connection(fund_container_name)
         logging.info(f"Connected to {fund_container_name}")
 
-        main_query = f"SELECT {main_select_fields} FROM c "
+        main_query = f"SELECT {main_select_fields} FROM c"
         main_items = list(main_container.query_items(main_query, enable_cross_partition_query=True))
         all_items.extend([item for item in main_items if item.get("id")])
 
@@ -1167,11 +1174,21 @@ def handle_menu():
             container = get_db_connection(cname)
             logging.info(f"Connected to {cname}")
 
-            query = f"SELECT {common_select_fields} FROM c "
+            query = f"SELECT {common_select_fields} FROM c"
             items = list(container.query_items(query, enable_cross_partition_query=True))
             all_items.extend([item for item in items if item.get("id")])
 
-        # 7️⃣ 分页
+        # 查询 common & final_common 容器
+        for final_cname in final_common_container_name:
+            container = get_db_connection(final_cname)
+            logging.info(f"Connected to {final_cname}")
+
+            query = f"SELECT {final_common_select_fields} FROM c"
+            items = list(container.query_items(
+                query=query, enable_cross_partition_query=True
+            ))
+            all_items.extend([i for i in items if i.get('id')])
+        # 分页
         total = len(all_items)
         start = (page - 1) * page_size
         end = start + page_size
@@ -1196,43 +1213,62 @@ def handle_menu_all():
         return jsonify({"error": "Invalid fund type"}), 400
     # 公募和私募容器（依赖 fund_type）
     fund_container_name = f"{fund_type}_Fund"
-    # 共通チェック対象 和 共通最終版
-    common_container_name = ["common_Fund", "final_common_Fund"]
+    # 共通チェック対象
+    common_container_name = ["common_Fund"]
+    # 共通最終版
+    final_common_container_name = ["final_common_Fund"]
     # 查询字段
     base_fields = (
         "c.id, c.fileName, c.link, c.readStatus, "
         "c.comment_type, c.status, c.upload_type, c.icon"
     )
-    extra_field = ", (ARRAY_LENGTH(c.result.corrections) > 0 ? true : false) AS hasCorrections"
+    extra_field = (
+        ", ("
+        "IS_DEFINED(c.result) "
+        "AND IS_DEFINED(c.result.corrections) "
+        "AND ARRAY_LENGTH(c.result.corrections) > 0"
+        ") AS hasCorrections"
+    )
     # fund_type 属于 public/private → 需要 hasCorrections
     main_select_fields = base_fields + extra_field
-    # 共通チェック対象和共通最終版只需要 base_fields
-    common_select_fields = base_fields
-
+    common_select_fields = base_fields + extra_field
+    # 共通最終版只需要 base_fields
+    final_common_select_fields = base_fields
     results = []
     try:
-        # 5️⃣ 查询公募和私募容器
+        # 查询公募和私募容器
         main_container = get_db_connection(fund_container_name)
         logging.info(f"Connected to {fund_container_name}")
 
-        main_query = f"SELECT {main_select_fields} FROM c "
+        main_query = f"SELECT {main_select_fields} FROM c"
         main_items = list(main_container.query_items(
             query=main_query, enable_cross_partition_query=True
         ))
         results.extend([i for i in main_items if i.get('id')])
 
-        # 6️⃣ 查询 common & final_common 容器
+        # 查询 common & final_common 容器
         for cname in common_container_name:
             container = get_db_connection(cname)
             logging.info(f"Connected to {cname}")
 
-            query = f"SELECT {common_select_fields} FROM c "
+            query = f"SELECT {common_select_fields} FROM c"
             items = list(container.query_items(
                 query=query, enable_cross_partition_query=True
             ))
             results.extend([i for i in items if i.get('id')])
 
-        # 7️⃣ 返回合并后的数据
+        # 查询 common & final_common 容器
+        for final_cname in final_common_container_name:
+            container = get_db_connection(final_cname)
+            logging.info(f"Connected to {final_cname}")
+
+            query = f"SELECT {final_common_select_fields} FROM c"
+            items = list(container.query_items(
+                query=query, enable_cross_partition_query=True
+            ))
+            results.extend([i for i in items if i.get('id')])
+
+        # 返回合并后的数据
         return jsonify({"code": 200, "data": results})
 
     except Exception as e:
