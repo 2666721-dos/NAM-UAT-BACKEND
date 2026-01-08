@@ -18,11 +18,10 @@ import re
 import fitz  # PyMuPDF
 import base64
 from openpyxl import Workbook
-from openpyxl.styles import PatternFill, Font
+from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
 from openpyxl.comments import Comment
 import openpyxl
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment
 import time
 import threading
 import zipfile
@@ -6462,6 +6461,207 @@ def list_from_azure_storage(prefix: str):
     except Exception as e:
         logging.error(f"❌ Storage listing error: {e}")
         return None
+def parse_fund_data_to_list(file_content_base64: str):
+    """
+    解析铭柄数据 json，输出表格的二维列表
+
+    args:
+        file_content_base64: base64 编码的 JSON 文件文本
+    """
+    if not file_content_base64:
+        logging.info("   -> warning - file_content_base64 is EMPTY")
+        return []
+    try:
+        # ① base64 → bytes
+        file_bytes = base64.b64decode(file_content_base64)
+
+        # ② bytes → UTF-8 string
+        json_str = file_bytes.decode("utf-8")
+
+        # ③ JSON 解析
+        fund_data = json.loads(json_str)
+    except Exception as e:
+        logging.error(f"   -> error - failed to decode base64 json: {e}")
+        return []
+
+    data = []
+    try:
+        if fund_data:
+            columns = fund_data.get("columns", [])
+            company_column_name = fund_data.get("company_column_name", "")
+            company_data = fund_data.get("company_data", {})
+            
+            # 拼接字段名
+            columns.insert(0, company_column_name)
+            # 将 columns 里的 update_month 字段映射成 "決算月"
+            if "update_month" in columns:
+                _index = columns.index("update_month")
+                columns[_index] = "決算月"
+                
+            data.append(columns)
+            for company_name, company_data_list in company_data.items():
+                for _row_data in company_data_list:
+                    row_data = [company_name]
+                    row_data.extend(_row_data)
+                    data.append(row_data)
+            return data
+    except Exception as e:
+        logging.info(f"   -> error - parse_fund_data_to_list: {e}")
+        return []
+
+@app.route('/api/parse_tenbrend_file_data', methods=['POST'])
+def parse_tenbrend_file_data():
+    """
+    前端传入 JSON：
+    {
+        "file_content_base64": "eyxxx"   # 10銘柄文件base64数据
+    }
+    返回：
+    {
+        "success": true,
+        "count": 5,
+        "data": [
+            {"name": "file1.pdf", "size": 20480, "last_modified": "2025-11-11T03:12:05Z"},
+            ...
+        ]
+    }
+    """
+    try:
+        data = request.json or {}
+        file_data = data.get('file_content_base64')
+
+        if not file_data:
+            return jsonify({"success": False, "error": "Missing parameter 'file_data'"}), 400
+        fund_data_list = parse_fund_data_to_list(file_data)
+        return jsonify({
+            "success": True,
+            "data": fund_data_list
+        })
+
+    except Exception as e:
+        logging.exception("❌ Error in /api/parse_tenbrend_file_data")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/export_tenbrend_excel', methods=['POST'])
+def export_tenbrend_excel():
+    try:
+        data = request.json or {}
+        fund_type = data.get("fund_type")
+
+        if fund_type not in ["private", "public"]:
+            return jsonify({"success": False, "error": "Invalid fund_type"}), 400
+
+        # ① 连接 Azure Blob
+        container_client = get_storage_container()
+
+        prefix = f"10銘柄/{fund_type}/"
+
+        # ② 列出目录下所有 JSON 文件
+        blob_list = container_client.list_blobs(name_starts_with=prefix)
+        json_blobs = [b for b in blob_list if b.name.endswith(".json") and "_test" not in b.name]
+
+        if not json_blobs:
+            return jsonify({"success": False, "error": "No JSON files found"}), 404
+
+        # ③ 创建 Excel
+        wb = Workbook()
+        first_sheet = True
+
+        header_fill = PatternFill(start_color="FF3C52B1", end_color="FF3C52B1", fill_type="solid")
+        # 表头：白色 + 加粗
+        header_font = Font(color="FFFFFFFF", bold=True)
+
+        # 上下实线边框
+        thin = Side(style="thin", color="FF000000")  # 黑色实线
+        tb_border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        # 表格左上角起点：row=2, col=2  => B2
+        START_ROW = 2
+        START_COL = 2
+
+        for blob in json_blobs:
+            # ---- 写表头：从 B2 开始 ----
+            header_row = START_ROW
+            blob_client = container_client.get_blob_client(blob.name)
+            json_bytes = blob_client.download_blob().readall()
+            json_data = json.loads(json_bytes.decode("utf-8"))
+
+            # fund = sheet 名（安全处理）
+            sheet_name = str(json_data.get("fund", "sheet"))[:31]
+
+            # 每个 JSON 新建一个 sheet
+            if first_sheet:
+                ws = wb.active
+                ws.title = sheet_name
+                first_sheet = False
+            else:
+                ws = wb.create_sheet(title=sheet_name)
+
+            columns = json_data.get("columns", [])
+            company_column = json_data.get("company_column_name", "銘柄")
+            company_data = json_data.get("company_data", {})
+            # 将 columns 里的 update_month 字段映射成 "決算月"
+            if "update_month" in columns:
+                _index = columns.index("update_month")
+                columns[_index] = "決算月"
+
+            # ④ 构造最终表头
+            headers = [company_column] + columns
+
+            # ---- 写表头：从 B2 开始 ----
+            header_row = START_ROW
+            for j, title in enumerate(headers):
+                cell = ws.cell(row=header_row, column=START_COL + j, value=title)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.border = tb_border  # 表头也加上下实线
+
+            # ⑤ 写 company_data 内容
+            row_index = START_ROW + 1
+            for company_name, rows in company_data.items():
+                for row_list in rows:
+                    # 第一列：company_name 写在 B 列（START_COL）
+                    c0 = ws.cell(row=row_index, column=START_COL, value=company_name)
+                    c0.border = tb_border
+
+                    # 后续列：从 C 列开始（START_COL+1）
+                    for i, v in enumerate(row_list, start=1):
+                        c = ws.cell(row=row_index, column=START_COL + i, value=v)
+                        c.border = tb_border
+
+                    row_index += 1
+            # ===== 简单加大表格显示：统一列宽/行高 =====
+            end_col = START_COL + len(headers) - 1
+            end_row = row_index - 1
+
+            # 1) 列宽统一加大
+            if row_index > START_ROW + 1:  # 确保有数据
+                DEFAULT_COL_WIDTH = 20
+                for col in range(START_COL, end_col + 1):
+                    ws.column_dimensions[get_column_letter(col)].width = DEFAULT_COL_WIDTH
+
+            # 2) 行高统一加大
+            DEFAULT_ROW_HEIGHT = 20
+            for r in range(START_ROW, end_row + 1):
+                if ws.cell(row=r, column=START_COL).value is not None:
+                    ws.row_dimensions[r].height = DEFAULT_ROW_HEIGHT
+
+        # ⑥ 保存 Excel 到内存
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        file_base64 = base64.b64encode(output.read()).decode("utf-8")
+
+        return jsonify({
+            "success": True,
+            "file_name": f"10銘柄_{fund_type}.xlsx",
+            "file_content_base64": file_base64
+        })
+
+    except Exception as e:
+        logging.exception("❌ Error in /api/export_tenbrend_excel")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 ####### Azure Blob Storage API Operation
 @app.route('/api/list_content', methods=['POST'])
 def list_content():
