@@ -1045,6 +1045,7 @@ def convert_format(filtered_items):
         target_condition = correction.get("target_condition", "")
         reason_type = correction.get("reason_type", "")
         check_point = correction.get("check_point", "")
+        checked_by = correction.get("checked_by", "")  # 新增字段
 
         # after: comment 中最后一个 → 后面的内容
         after_text = ""
@@ -1081,6 +1082,7 @@ def convert_format(filtered_items):
             "focus": focus,
             "reference": reference,
             "target_condition": target_condition,
+            "checked_by": checked_by,  # 新增字段
         }
 
         checkResults[page][0]["items"].append(item_data)
@@ -1126,74 +1128,93 @@ def handle_check_results():
         return jsonify({"error": "Internal server error"}), 500
 
 # get side bar
+# =========================
+# 公共 SQL 片段（只定义一次）
+# =========================
+BASE_FIELDS = (
+    "c.id, c.fileName, c.link, c.readStatus, "
+    "c.comment_type, c.status, c.upload_type, c.icon"
+)
+
+MAIN_SELECT_FIELDS = BASE_FIELDS 
+COMMON_SELECT_FIELDS = BASE_FIELDS
+FINAL_COMMON_SELECT_FIELDS = BASE_FIELDS
+
+
+# =========================
+# /api/menu（分页）
+# =========================
 @app.route('/api/menu', methods=['POST'])
 def handle_menu():
     fund_type = request.json.get('type')
     page = int(request.json.get('page', 1))
     page_size = int(request.json.get('page_size', 10))
-    # user_name = request.json.get('user_name')
 
     if fund_type not in ['public', 'private']:
         return jsonify({"error": "Invalid fund type"}), 400
-    # 公募和私募容器（依赖 fund_type）
+
     fund_container_name = f"{fund_type}_Fund"
-    # 共通チェック対象 和 共通最終版
     common_container_name = ["common_Fund"]
     final_common_container_name = ["final_common_Fund"]
-    # 查询字段
-    base_fields = (
-        "c.id, c.fileName, c.link, c.readStatus, "
-        "c.comment_type, c.status, c.upload_type, c.icon"
-    )
-    extra_field = (
-        ", ("
-        "IS_DEFINED(c.result) "
-        "AND IS_DEFINED(c.result.corrections) "
-        "AND ARRAY_LENGTH(c.result.corrections) > 0"
-        ") AS hasCorrections"
-    )
-    # fund_type 属于 public/private → 需要 hasCorrections
-    main_select_fields = base_fields + extra_field
-    common_select_fields = base_fields + extra_field
-    # 共通最終版只需要 base_fields
-    final_common_select_fields = base_fields
-    # 最终数据
+
     all_items = []
+
     try:
-        # 查询公募和私募容器
+        # =========================
+        # 主容器
+        # =========================
         main_container = get_db_connection(fund_container_name)
         logging.info(f"Connected to {fund_container_name}")
 
-        main_query = f"SELECT {main_select_fields} FROM c"
-        main_items = list(main_container.query_items(main_query, enable_cross_partition_query=True))
+        main_query = f"SELECT {MAIN_SELECT_FIELDS} FROM c"
+        main_items = list(
+            main_container.query_items(
+                query=main_query,
+                enable_cross_partition_query=True
+            )
+        )
         all_items.extend([item for item in main_items if item.get("id")])
 
-        # 查询 common & final_common 容器
+        # =========================
+        # common
+        # =========================
         for cname in common_container_name:
             container = get_db_connection(cname)
             logging.info(f"Connected to {cname}")
 
-            query = f"SELECT {common_select_fields} FROM c"
-            items = list(container.query_items(query, enable_cross_partition_query=True))
+            query = f"SELECT {COMMON_SELECT_FIELDS} FROM c"
+            items = list(
+                container.query_items(
+                    query=query,
+                    enable_cross_partition_query=True
+                )
+            )
             all_items.extend([item for item in items if item.get("id")])
 
-        # 查询 common & final_common 容器
+        # =========================
+        # final_common
+        # =========================
         for final_cname in final_common_container_name:
             container = get_db_connection(final_cname)
             logging.info(f"Connected to {final_cname}")
 
-            query = f"SELECT {final_common_select_fields} FROM c"
-            items = list(container.query_items(
-                query=query, enable_cross_partition_query=True
-            ))
+            query = f"SELECT {FINAL_COMMON_SELECT_FIELDS} FROM c"
+            items = list(
+                container.query_items(
+                    query=query,
+                    enable_cross_partition_query=True
+                )
+            )
             all_items.extend([i for i in items if i.get('id')])
-        # 分页
+
+        # =========================
+        # 分页（Python侧）
+        # =========================
         total = len(all_items)
-        start = (page - 1) * page_size
+        start = max((page - 1) * page_size, 0)
         end = start + page_size
         paged_items = all_items[start:end]
 
-        # 返回合并后的数据
         return jsonify({
             "code": 200,
             "data": paged_items,
@@ -1203,71 +1224,72 @@ def handle_menu():
     except Exception as e:
         logging.error(f"Database error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
-    
+
+
+# =========================
+# /api/menu_all（全量）
+# =========================
 @app.route('/api/menu_all', methods=['POST'])
 def handle_menu_all():
-    # param check
     fund_type = request.json.get('type')
+
     if fund_type not in ['public', 'private']:
         return jsonify({"error": "Invalid fund type"}), 400
-    # 公募和私募容器（依赖 fund_type）
+
     fund_container_name = f"{fund_type}_Fund"
-    # 共通チェック対象
     common_container_name = ["common_Fund"]
-    # 共通最終版
     final_common_container_name = ["final_common_Fund"]
-    # 查询字段
-    base_fields = (
-        "c.id, c.fileName, c.link, c.readStatus, "
-        "c.comment_type, c.status, c.upload_type, c.icon"
-    )
-    extra_field = (
-        ", ("
-        "IS_DEFINED(c.result) "
-        "AND IS_DEFINED(c.result.corrections) "
-        "AND ARRAY_LENGTH(c.result.corrections) > 0"
-        ") AS hasCorrections"
-    )
-    # fund_type 属于 public/private → 需要 hasCorrections
-    main_select_fields = base_fields + extra_field
-    common_select_fields = base_fields + extra_field
-    # 共通最終版只需要 base_fields
-    final_common_select_fields = base_fields
+
     results = []
+
     try:
-        # 查询公募和私募容器
+        # =========================
+        # 主容器
+        # =========================
         main_container = get_db_connection(fund_container_name)
         logging.info(f"Connected to {fund_container_name}")
 
-        main_query = f"SELECT {main_select_fields} FROM c"
-        main_items = list(main_container.query_items(
-            query=main_query, enable_cross_partition_query=True
-        ))
+        main_query = f"SELECT {MAIN_SELECT_FIELDS} FROM c"
+        main_items = list(
+            main_container.query_items(
+                query=main_query,
+                enable_cross_partition_query=True
+            )
+        )
         results.extend([i for i in main_items if i.get('id')])
 
-        # 查询 common & final_common 容器
+        # =========================
+        # common
+        # =========================
         for cname in common_container_name:
             container = get_db_connection(cname)
             logging.info(f"Connected to {cname}")
 
-            query = f"SELECT {common_select_fields} FROM c"
-            items = list(container.query_items(
-                query=query, enable_cross_partition_query=True
-            ))
+            query = f"SELECT {COMMON_SELECT_FIELDS} FROM c"
+            items = list(
+                container.query_items(
+                    query=query,
+                    enable_cross_partition_query=True
+                )
+            )
             results.extend([i for i in items if i.get('id')])
 
-        # 查询 common & final_common 容器
+        # =========================
+        # final_common
+        # =========================
         for final_cname in final_common_container_name:
             container = get_db_connection(final_cname)
             logging.info(f"Connected to {final_cname}")
 
-            query = f"SELECT {final_common_select_fields} FROM c"
-            items = list(container.query_items(
-                query=query, enable_cross_partition_query=True
-            ))
+            query = f"SELECT {FINAL_COMMON_SELECT_FIELDS} FROM c"
+            items = list(
+                container.query_items(
+                    query=query,
+                    enable_cross_partition_query=True
+                )
+            )
             results.extend([i for i in items if i.get('id')])
 
-        # 返回合并后的数据
         return jsonify({"code": 200, "data": results})
 
     except Exception as e:
@@ -6289,6 +6311,11 @@ def call_openai_with_global_lock():
             messages = [{"role": "user", "content": messages}]
 
     image_bytes = data.get("image_bytes", None)
+    if isinstance(image_bytes, str):
+        try:
+            image_bytes = base64.b64decode(image_bytes)
+        except Exception as e:
+            raise ValueError(f"image_bytes Base64 解码失败: {e}")
 
     try:
         # ✅ 调用原逻辑
@@ -6461,6 +6488,7 @@ def list_from_azure_storage(prefix: str):
     except Exception as e:
         logging.error(f"❌ Storage listing error: {e}")
         return None
+
 def parse_fund_data_to_list(file_content_base64: str):
     """
     解析铭柄数据 json，输出表格的二维列表
@@ -9765,6 +9793,11 @@ def call_openai_with_global_lock_function_call():
             messages = [{"role": "user", "content": messages}]
 
     image_bytes = data.get("image_bytes", None)
+    if isinstance(image_bytes, str):
+        try:
+            image_bytes = base64.b64decode(image_bytes)
+        except Exception as e:
+            raise ValueError(f"image_bytes Base64 解码失败: {e}")
 
     try:
         # ✅ 调用原逻辑
@@ -9914,8 +9947,6 @@ def openai_with_global_lock_function_call(
                 print("全局锁已被成功释放。")
             except Exception as e:
                 print(f"警告：释放全局锁失败: {e}。该锁将在下次超时检查时被强制释放。")
-
-
 
 app = WsgiToAsgi(app)
 
