@@ -1034,61 +1034,64 @@ def convert_to_tenbrend(items):
 def convert_format(filtered_items):
     checkResults = {}
 
-    for correction in filtered_items.get("result", {}).get("corrections", []):
-        page = correction.get("page", 0) + 1
-        colorSet = "rgba(255,255,0,0.5)"
+    def append_items(items):
+        for correction in items:
+            page = correction.get("page", 0) + 1
+            colorSet = "rgba(255,255,0,0.5)"
 
-        original_text = correction.get("original_text", "")
-        comment = correction.get("comment", "")
-        focus = correction.get("focus", "")
-        reference = correction.get("reference", "")
-        target_condition = correction.get("target_condition", "")
-        reason_type = correction.get("reason_type", "")
-        check_point = correction.get("check_point", "")
-        checked_by = correction.get("checked_by", "")  # 新增字段
+            original_text = correction.get("original_text", "")
+            comment = correction.get("comment", "")
+            focus = correction.get("focus", "")
+            reference = correction.get("reference", "")
+            target_condition = correction.get("target_condition", "")
+            reason_type = correction.get("reason_type", "")
+            check_point = correction.get("check_point", "")
+            checked_by = correction.get("checked_by", "")
 
-        # after: comment 中最后一个 → 后面的内容
-        after_text = ""
-        if "→" in comment:
-            after_text = comment.split("→")[-1].strip()
-        else:
-            after_text = comment.strip()
+            after_text = ""
+            if "→" in comment:
+                after_text = comment.split("→")[-1].strip()
+            else:
+                after_text = comment.strip()
 
-        change = {
-            "before": original_text,
-            "after": after_text,
-        }
+            change = {
+                "before": original_text,
+                "after": after_text,
+            }
 
-        # 名称（不一致 or 空）
-        if correction.get("intgr"):
-            name = "不一致"
-            colorSet = "rgba(172, 228, 230, 0.5)"
-        else:
-            name = ""
+            if correction.get("intgr"):
+                name = "不一致"
+                colorSet = "rgba(172, 228, 230, 0.5)"
+            else:
+                name = ""
 
-        # 初始化 page
-        if page not in checkResults:
-            checkResults[page] = [{"title": filtered_items.get("fileName", ""), "items": []}]
+            if page not in checkResults:
+                checkResults[page] = [{"title": filtered_items.get("fileName", ""), "items": []}]
 
-        item_data = {
-            "name": name,
-            "color": colorSet,
-            "page": page,
-            "changes": [change],
-            "reason_type": reason_type,
-            "check_point": check_point,
-            "original_text": original_text,
-            "comment": comment,
-            "focus": focus,
-            "reference": reference,
-            "target_condition": target_condition,
-            "checked_by": checked_by,  # 新增字段
-        }
+            item_data = {
+                "name": name,
+                "color": colorSet,
+                "page": page,
+                "changes": [change],
+                "reason_type": reason_type,
+                "check_point": check_point,
+                "original_text": original_text,
+                "comment": comment,
+                "focus": focus,
+                "reference": reference,
+                "target_condition": target_condition,
+                "checked_by": checked_by,
+            }
 
-        checkResults[page][0]["items"].append(item_data)
+            checkResults[page][0]["items"].append(item_data)
+
+    result = filtered_items.get("result", {})
+    append_items(result.get("corrections", []))
+    append_items(result.get("exists_check", []))
+
     log_data = filtered_items.get("log", [])
 
-    return {"data": checkResults,"log": log_data,"code": 200}
+    return {"data": checkResults, "log": log_data, "code": 200}
 
 # public_Fund and check-results
 @app.route('/api/check_results', methods=['POST'])
