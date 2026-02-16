@@ -1087,7 +1087,9 @@ def convert_format(filtered_items):
 
     result = filtered_items.get("result", {})
     append_items(result.get("corrections", []))
-    append_items(result.get("exists_check", []))
+
+    exists_check_items = filtered_items.get("exists_check", [])
+    append_items(exists_check_items)
 
     log_data = filtered_items.get("log", [])
 
