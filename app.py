@@ -10137,6 +10137,195 @@ def openai_with_global_lock_function_call(
             except Exception as e:
                 print(f"警告：释放全局锁失败: {e}。该锁将在下次超时检查时被强制释放。")
 
+@app.route('/api/call_openai_with_global_lock_function_call_gpt5', methods=['POST'])
+def call_openai_with_global_lock_function_call_gpt5():
+    """ 
+    通过 Cosmos DB 的全局锁机制严格控制并发，确保同一时间只有一个 OpenAI 调用在执行。
+    此版本专门用于 GPT-5 的 Function Call。
+    """
+    # ✅ 自动兼容 JSON 与 multipart/form-data
+    data = request.get_json(silent=True)
+    if data is None:
+        data = request.form.to_dict()
+        file = request.files.get("image_bytes")
+        if file:
+            data["image_bytes"] = file.read()
+
+    # ✅ 自动解析 messages
+    messages = data.get("messages", [])
+    functions = data.get("functions", [])
+    function_call = data.get("function_call", None)
+    
+    if isinstance(messages, str):
+        try:
+            # 尝试将字符串解析为 JSON 数组
+            messages = json.loads(messages)
+        except Exception:
+            # 如果不是合法 JSON，包装成一个用户消息
+            messages = [{"role": "user", "content": messages}]
+
+    image_bytes = data.get("image_bytes", None)
+    if isinstance(image_bytes, str):
+        try:
+            image_bytes = base64.b64decode(image_bytes)
+        except Exception as e:
+            raise ValueError(f"image_bytes Base64 解码失败: {e}")
+
+    try:
+        # ✅ 调用 GPT-5 Function Call 逻辑
+        response = openai_with_global_lock_function_call_gpt5(
+            messages=messages,
+            image_bytes=image_bytes,
+            functions=functions,
+            function_call=function_call
+        )
+        return jsonify(response), 200
+    except Exception as e:
+        logging.error(f"OpenAI GPT-5 Lock Error (Function Call): {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+def openai_with_global_lock_function_call_gpt5(
+    messages: List[dict],
+    image_bytes: Optional[bytes] = None,
+    functions: Optional[List[dict]] = None,
+    function_call: Optional[dict] = None
+) -> dict:
+    """
+    通过 Cosmos DB 的全局锁机制严格控制并发，确保同一时间只有一个 OpenAI 调用在执行。
+    此版本专门用于 GPT-5 的 Function Call。
+    """
+    # --- 全局锁配置常量 ---
+    LOCK_CONTAINER_NAME = "openai_global_lock"
+    LOCK_DOCUMENT_ID = "master_lock_gpt5" # 与普通 GPT-5 共享同一个锁
+    RETRY_INTERVAL_SECONDS = 5
+    PROCESSING_TIMEOUT_MINUTES = 3
+
+    client_real = CosmosClient("https://nricosmosdb1.documents.azure.com:443/", credential=credential)
+    database_real = client_real.get_database_client("file_db")
+    lock_container = database_real.get_container_client(LOCK_CONTAINER_NAME)
+    lock_acquired = False
+    token = token_cache.get_token()
+    
+    # 1. 循环尝试获取全局锁
+    while not lock_acquired:
+        try:
+            lock_doc = lock_container.read_item(item=LOCK_DOCUMENT_ID, partition_key=LOCK_DOCUMENT_ID)
+
+            if lock_doc['status'] == 'busy':
+                timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=PROCESSING_TIMEOUT_MINUTES)
+                locked_at_time = datetime.fromisoformat(lock_doc['locked_at'])
+                if locked_at_time < timeout_threshold:
+                    print("检测到 GPT-5 全局锁超时，强制释放...")
+                    lock_doc['status'] = 'available'
+                    lock_doc['locked_at'] = None
+                    lock_doc['occupied_by'] = None
+                    try:
+                        lock_container.replace_item(item=lock_doc, body=lock_doc)
+                        print("GPT-5 全局锁已被成功释放。")
+                        lock_doc = lock_container.read_item(item=LOCK_DOCUMENT_ID, partition_key=LOCK_DOCUMENT_ID)
+                    except CosmosHttpResponseError as e:
+                        if e.status_code == 412:
+                            print("释放 GPT-5 锁时发生并发冲突，由其他进程接管。")
+                        else:
+                            raise
+            
+            if lock_doc['status'] == 'available':
+                lock_doc['status'] = 'busy'
+                lock_doc['locked_at'] = datetime.now(timezone.utc).isoformat()
+                lock_doc['occupied_by'] = os.environ.get("ACCOUNT_URL", "unknown")
+                lock_container.replace_item(item=lock_doc, body=lock_doc)
+                lock_acquired = True
+                print("成功获取 GPT-5 全局锁 (Function Call)。")
+
+            else:
+                print(f"GPT-5 全局锁被占用，将在 {RETRY_INTERVAL_SECONDS} 秒后重试...")
+                time.sleep(RETRY_INTERVAL_SECONDS)
+
+        except CosmosHttpResponseError as e:
+            if e.status_code == 412:
+                print("获取 GPT-5 锁时发生并发冲突，立即重试...")
+                time.sleep(random.uniform(0.1, 0.5))
+                continue
+            elif e.status_code == 404:
+                 print(f"GPT-5 锁文档 {LOCK_DOCUMENT_ID} 不存在，尝试初始化...")
+                 new_lock_doc = {
+                     "id": LOCK_DOCUMENT_ID,
+                     "status": "available",
+                     "locked_at": None,
+                     "occupied_by": None
+                 }
+                 try:
+                     lock_container.create_item(body=new_lock_doc)
+                     continue 
+                 except Exception as create_error:
+                     print(f"初始化 GPT-5 锁文档失败: {create_error}")
+                     raise
+            else:
+                print(f"数据库操作失败，状态码: {e.status_code}")
+                raise
+        except Exception as e:
+            print(f"获取 GPT-5 锁时发生未知错误: {e}")
+            time.sleep(RETRY_INTERVAL_SECONDS)
+            continue
+
+    # 2. 成功获取锁后，准备并执行 OpenAI 调用
+    try:
+        if image_bytes:
+            print("GPT-5 检测到图片输入，正在准备多模态消息...")
+            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+            user_prompt_text = messages[-1]['content']
+            
+            vision_message_content = [
+                {
+                    "type": "text",
+                    "text": user_prompt_text
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{base64_image}"
+                    }
+                }
+            ]
+            messages[-1]['content'] = vision_message_content
+
+        print(f"正在调用 Azure OpenAI API (GPT-5 Function Call) Endpoint: {endpoint_gpt5}...")
+        
+        # 使用局部参数调用
+        response = openai.ChatCompletion.create(
+            api_base=endpoint_gpt5,
+            api_key=token,
+            api_type="azure_ad",
+            api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+            deployment_id=deployment_id_gpt5,
+            messages=messages,
+            max_completion_tokens=MAX_TOKENS,
+            temperature=TEMPERATURE,
+            functions=functions,
+            function_call=function_call,
+            seed=SEED
+        )
+        print("GPT-5 OpenAI API (Function Call) 调用成功。")
+        return response.to_dict()
+
+    except Exception as e:
+        print(f"GPT-5 OpenAI API (Function Call) 调用失败: {e}")
+        raise e
+
+    finally:
+        # 3. (关键) 无论成功或失败，都必须释放锁
+        if lock_acquired:
+            try:
+                lock_doc_to_release = lock_container.read_item(item=LOCK_DOCUMENT_ID, partition_key=LOCK_DOCUMENT_ID)
+                lock_doc_to_release['status'] = 'available'
+                lock_doc_to_release['locked_at'] = None
+                lock_doc_to_release['occupied_by'] = None
+                lock_container.replace_item(item=lock_doc_to_release, body=lock_doc_to_release)
+                print("GPT-5 全局锁已被成功释放 (Function Call)。")
+            except Exception as e:
+                print(f"警告：释放 GPT-5 全局锁失败 (Function Call): {e}。该锁将在下次超时检查时被强制释放。")
+
 app = WsgiToAsgi(app)
 
 if __name__ == '__main__':
